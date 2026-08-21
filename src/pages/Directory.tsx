@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Body,
@@ -11,18 +11,28 @@ import {
   Strong,
 } from '@apygee/atoms';
 import { DataTable, type DataTableColumnDef } from '@apygee/data-table';
-import { db } from '../db';
+import { supabase } from '../supabase';
 
-// Query families with nested parents, children, and each child's teachers.
-const DIRECTORY_QUERY = {
-  families: {
-    parents: {},
-    children: {
-      currentTeacher: {},
-      pastTeachers: {},
-    },
-  },
-} as const;
+// One nested query: families with parents, children, and each child's
+// current + past teachers. Postgres columns are snake_case; aliases map them
+// back to the camelCase names the render code uses.
+const DIRECTORY_SELECT = `
+  id, name,
+  parents (
+    id, firstName:first_name, lastName:last_name, email,
+    street, city, state, zip,
+    homePhone:home_phone, workPhone:work_phone, mobilePhone:mobile_phone
+  ),
+  children (
+    id, firstName:first_name, lastName:last_name, birthDate:birth_date,
+    currentTeacher:teachers!children_current_teacher_id_fkey (
+      id, firstName:first_name, lastName:last_name, grade
+    ),
+    pastTeachers:teachers!child_past_teachers (
+      id, firstName:first_name, lastName:last_name, grade
+    )
+  )
+`;
 
 type Teacher = { id: string; firstName: string; lastName: string; grade: number };
 type Child = {
@@ -30,7 +40,7 @@ type Child = {
   firstName: string;
   lastName: string;
   birthDate: string;
-  currentTeacher?: Teacher;
+  currentTeacher?: Teacher | null;
   pastTeachers?: Teacher[];
 };
 type Parent = {
@@ -47,6 +57,40 @@ type Parent = {
   mobilePhone?: string;
 };
 type Family = { id: string; name: string; parents?: Parent[]; children?: Child[] };
+
+type DirectoryResult = {
+  isLoading: boolean;
+  error: { message: string } | null;
+  families: Family[];
+};
+
+function useDirectory(): DirectoryResult {
+  const [result, setResult] = useState<DirectoryResult>({
+    isLoading: true,
+    error: null,
+    families: [],
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('families')
+      .select(DIRECTORY_SELECT)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setResult({
+          isLoading: false,
+          error,
+          families: (data ?? []) as unknown as Family[],
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return result;
+}
 
 const COLUMNS: DataTableColumnDef<Family>[] = [
   {
@@ -89,9 +133,7 @@ const COLUMNS: DataTableColumnDef<Family>[] = [
 
 export function DirectoryPage() {
   const [filter, setFilter] = useState('');
-  const { isLoading, error, data } = db.useQuery(DIRECTORY_QUERY);
-
-  const families = (data?.families ?? []) as Family[];
+  const { isLoading, error, families } = useDirectory();
 
   // Filter across family, parent, and child names. The DataTable's built-in
   // global filter only sees flat cell values, so we drive its toolbar search
