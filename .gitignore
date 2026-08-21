@@ -1,0 +1,10 @@
+node_modules
+dist
+*.local
+.DS_Store
+
+# Holds INSTANT_ADMIN_TOKEN — never commit
+.env
+
+# SDD scratch workspaces
+.superpowers/

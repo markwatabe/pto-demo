@@ -1,0 +1,13 @@
+packages:
+  - '.'
+  # Consume the @apygee component library from the sibling monorepo as
+  # workspace packages. Their dist/ output is already built.
+  - '../components/packages/atoms'
+  - '../components/packages/core'
+  - '../components/packages/types'
+  - '../components/packages/data-table'
+
+# pnpm blocks install scripts by default. esbuild (a Vite dependency)
+# postinstalls its native binary; allow only that.
+allowBuilds:
+  esbuild: true
