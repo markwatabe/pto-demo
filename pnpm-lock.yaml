@@ -17,9 +17,6 @@ importers:
       '@apygee/data-table':
         specifier: workspace:*
         version: link:../components/packages/data-table
-      '@instantdb/react':
-        specifier: ^0.21.0
-        version: 0.21.30(react@19.2.7)
       '@supabase/supabase-js':
         specifier: ^2.112.3
         version: 2.112.3
@@ -33,9 +30,6 @@ importers:
         specifier: 7.14.2
         version: 7.14.2(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
     devDependencies:
-      '@instantdb/admin':
-        specifier: ^0.21.30
-        version: 0.21.30
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.17
@@ -638,20 +632,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@instantdb/admin@0.21.30':
-    resolution: {integrity: sha512-IR8Wi+wJkGVqClJUnEFkUXYScyhmUV1qPO4s1+eHfFptkquHHtGSz1bUffGbGZJCj84lJVpjcvS1MCPgvd2PBg==}
-
-  '@instantdb/core@0.21.30':
-    resolution: {integrity: sha512-PB/QFtrOYRmjKDYzo7oOIuJalLJVY/4mLljcYFkrbShMKz1oukKQ8sy+0/9pVcUETMyePgJUmuXcnrHwO7xjgQ==}
-
-  '@instantdb/react@0.21.30':
-    resolution: {integrity: sha512-QXhOZSf7c8lTM7n2DFUF26fMkbZSneX9QhEf/KBb0hF2vAuQqANFJ4zRDaJ/ZiDNNntBZT1r+dHhI6VkLuRmlQ==}
-    peerDependencies:
-      react: '>=16'
-
-  '@instantdb/version@0.21.30':
-    resolution: {integrity: sha512-yhrxnZo3c2/EK3dnDEcX4XYHfXjlyj3QPPvylrBY2qxodKzcEh9BnJufiQiP+2ePUD+kET+2FQlztxQ4E9BAbg==}
-
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -1100,14 +1080,6 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
-  eventsource-parser@3.1.0:
-    resolution: {integrity: sha512-kJezFj9YFAMLeORyi7aCLxLbD5/qWMQnoMVlVPyHIll7lgRJCc3JVln9Vgl9nwQi0YkMnhdGTMNn7CkRRAptMg==}
-    engines: {node: '>=18.0.0'}
-
-  eventsource@4.1.0:
-    resolution: {integrity: sha512-2GuF51iuHX6A9xdTccMTsNb7VO0lHZihApxhvQzJB5A03DvHDd2FQepodbMaztPBmBcE/ox7o2gqaxGhYB9LhQ==}
-    engines: {node: '>=20.0.0'}
-
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
@@ -1240,10 +1212,6 @@ packages:
 
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
-
-  mutative@1.3.0:
-    resolution: {integrity: sha512-8MJj6URmOZAV70dpFe1YnSppRTKC4DsMkXQiBDFayLcDI4ljGokHxmpqaBQuDWa4iAxWaJJ1PS8vAmbntjjKmQ==}
-    engines: {node: '>=14.0'}
 
   nanoid@3.3.15:
     resolution: {integrity: sha512-y7Wygv/7mEOvxTuEQDB8StXdMRBWf1kR/tlhAzBRUFkB2jfcLOAxO/SHmOO2zgz1pVgK29/kyupn059/bCHdjA==}
@@ -1423,10 +1391,6 @@ packages:
 
   url-parse@1.5.10:
     resolution: {integrity: sha512-WypcfiRhfeUP9vvF0j6rw0J3hrWrw6iZv3+22h6iRMJ/8z1Tj6XfLP4DsUix5MhMPnXpiHDoKyoZ/bdCkwBCiQ==}
-
-  uuid@11.1.1:
-    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
-    hasBin: true
 
   vite-node@2.1.9:
     resolution: {integrity: sha512-AM9aQ/IPrW/6ENLQg3AGY4K1N2TGZdR5e4gu/MmmR2xR3Ll1+dib+nook92g4TV3PXVyeyxdWwtaCAiUL0hMxA==}
@@ -1829,26 +1793,6 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.1':
     optional: true
-
-  '@instantdb/admin@0.21.30':
-    dependencies:
-      '@instantdb/core': 0.21.30
-      '@instantdb/version': 0.21.30
-      eventsource: 4.1.0
-
-  '@instantdb/core@0.21.30':
-    dependencies:
-      '@instantdb/version': 0.21.30
-      mutative: 1.3.0
-      uuid: 11.1.1
-
-  '@instantdb/react@0.21.30(react@19.2.7)':
-    dependencies:
-      '@instantdb/core': 0.21.30
-      '@instantdb/version': 0.21.30
-      react: 19.2.7
-
-  '@instantdb/version@0.21.30': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -2278,12 +2222,6 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eventsource-parser@3.1.0: {}
-
-  eventsource@4.1.0:
-    dependencies:
-      eventsource-parser: 3.1.0
-
   expect-type@1.4.0: {}
 
   form-data@4.0.6:
@@ -2422,8 +2360,6 @@ snapshots:
   min-indent@1.0.1: {}
 
   ms@2.1.3: {}
-
-  mutative@1.3.0: {}
 
   nanoid@3.3.15: {}
 
@@ -2593,8 +2529,6 @@ snapshots:
     dependencies:
       querystringify: 2.2.0
       requires-port: 1.0.0
-
-  uuid@11.1.1: {}
 
   vite-node@2.1.9(@types/node@20.19.43):
     dependencies:
