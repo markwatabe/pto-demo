@@ -6,7 +6,9 @@
  * Idempotent: deletes all existing families/parents/children/teachers first,
  * then recreates a fresh random sample. Safe to re-run.
  *
- * Requires VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.
+ * Requires VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and ADMIN_EMAIL
+ * in .env. Bootstraps ADMIN_EMAIL as an approved admin (profiles/admins
+ * are never wiped — they hold real users, not demo data).
  * The service-role key bypasses RLS — this script must never run client-side.
  */
 import 'dotenv/config';
@@ -18,6 +20,9 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!url) throw new Error('Missing VITE_SUPABASE_URL in .env');
 if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY in .env');
+
+const adminEmail = process.env.ADMIN_EMAIL;
+if (!adminEmail) throw new Error('Missing ADMIN_EMAIL in .env');
 
 const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
@@ -108,7 +113,44 @@ async function insertAll(table: string, rows: Record<string, unknown>[]) {
   }
 }
 
+// Find-or-create the first admin's confirmed auth user, then mark them
+// approved and admin. Idempotent via upsert.
+async function bootstrapAdmin(email: string) {
+  const { data: list, error: listError } = await db.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (listError) throw new Error(`Failed to list users: ${listError.message}`);
+
+  let adminUser = list.users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+  if (!adminUser) {
+    const { data: created, error: createError } = await db.auth.admin.createUser({
+      email,
+      email_confirm: true,
+    });
+    if (createError) throw new Error(`Failed to create admin user: ${createError.message}`);
+    adminUser = created.user ?? undefined;
+  }
+  if (!adminUser) throw new Error('Admin user lookup/creation returned no user');
+
+  const { error: profileError } = await db.from('profiles').upsert({
+    id: adminUser.id,
+    email,
+    status: 'approved',
+    approved_at: new Date().toISOString(),
+  });
+  if (profileError) throw new Error(`Failed to upsert admin profile: ${profileError.message}`);
+
+  const { error: adminError } = await db
+    .from('admins')
+    .upsert({ user_id: adminUser.id, email });
+  if (adminError) throw new Error(`Failed to upsert admin role: ${adminError.message}`);
+
+  console.log(`Admin bootstrapped: ${email}`);
+}
+
 async function main() {
+  await bootstrapAdmin(adminEmail);
   console.log('Clearing existing directory data…');
   // Children/parents cascade from families, but clear explicitly so counts print.
   for (const [table, key] of [

@@ -20,7 +20,15 @@ if (!url || !anonKey || !serviceKey) {
 const anonDb = createClient(url, anonKey, { auth: { persistSession: false } });
 const adminDb = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-const TABLES = ['families', 'parents', 'children', 'teachers', 'child_past_teachers'];
+const TABLES = [
+  'families',
+  'parents',
+  'children',
+  'teachers',
+  'child_past_teachers',
+  'profiles',
+  'admins',
+];
 
 async function countRows(client: ReturnType<typeof createClient>, table: string) {
   const { count, error } = await client.from(table).select('*', { count: 'exact', head: true });
