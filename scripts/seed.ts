@@ -116,6 +116,7 @@ async function insertAll(table: string, rows: Record<string, unknown>[]) {
 // Find-or-create the first admin's confirmed auth user, then mark them
 // approved and admin. Idempotent via upsert.
 async function bootstrapAdmin(email: string) {
+  email = email.trim().toLowerCase();
   const { data: list, error: listError } = await db.auth.admin.listUsers({
     page: 1,
     perPage: 1000,

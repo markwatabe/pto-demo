@@ -4,9 +4,6 @@
 -- `pnpm seed` afterwards to re-bootstrap the first admin.
 
 drop trigger if exists on_auth_user_created on auth.users;
-drop function if exists public.handle_new_user();
-drop function if exists public.is_approved();
-drop function if exists public.is_admin();
 drop table if exists admins;
 drop table if exists profiles;
 drop table if exists child_past_teachers;
@@ -14,6 +11,9 @@ drop table if exists children;
 drop table if exists parents;
 drop table if exists families;
 drop table if exists teachers;
+drop function if exists public.handle_new_user();
+drop function if exists public.is_approved();
+drop function if exists public.is_admin();
 
 create table families (
   id uuid primary key default gen_random_uuid(),

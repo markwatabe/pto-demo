@@ -69,17 +69,22 @@ export function AdminPage() {
   async function approve(profile: ProfileRow) {
     setBusyId(profile.id);
     setError(null);
-    const { error: updateError } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('profiles')
       .update({
         status: 'approved',
         approved_at: new Date().toISOString(),
         approved_by: user?.id ?? null,
       })
-      .eq('id', profile.id);
+      .eq('id', profile.id)
+      .select('id');
     setBusyId(null);
     if (updateError) {
       setError(updateError.message);
+      return;
+    }
+    if ((updated ?? []).length === 0) {
+      setError('You no longer have permission to approve sign-ups.');
       return;
     }
     await load();
@@ -121,13 +126,18 @@ export function AdminPage() {
   async function revoke(admin: AdminRow) {
     setBusyId(admin.user_id);
     setError(null);
-    const { error: deleteError } = await supabase
+    const { data: removed, error: deleteError } = await supabase
       .from('admins')
       .delete()
-      .eq('user_id', admin.user_id);
+      .eq('user_id', admin.user_id)
+      .select('user_id');
     setBusyId(null);
     if (deleteError) {
       setError(deleteError.message);
+      return;
+    }
+    if ((removed ?? []).length === 0) {
+      setError('You no longer have permission to revoke admins.');
       return;
     }
     await load();
