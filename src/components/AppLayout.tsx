@@ -19,7 +19,7 @@ const NAV_ITEMS = [
   { to: '/our-pto', label: 'Our PTO' },
 ] as const;
 
-export function AppLayout() {
+export function AppLayout({ isAdmin }: { isAdmin: boolean }) {
   const { user } = useAuth();
 
   return (
@@ -42,6 +42,11 @@ export function AppLayout() {
                   {item.label}
                 </NavLink>
               ))}
+              {isAdmin ? (
+                <NavLink to="/admin" end>
+                  Admin
+                </NavLink>
+              ) : null}
             </Stack>
           </div>
 

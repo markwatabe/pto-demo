@@ -1,15 +1,17 @@
 import { Navigate, Route, Routes } from 'react-router';
 import { PageShell, Spinner, Stack } from '@apygee/atoms';
-import { useAuth } from './auth';
+import { useAccess } from './access';
 import { AppLayout } from './components/AppLayout';
 import { LoginPage } from './pages/Login';
 import { DirectoryPage } from './pages/Directory';
 import { CalendarPage } from './pages/Calendar';
 import { FormsPage } from './pages/Forms';
 import { OurPtoPage } from './pages/OurPto';
+import { AdminPage } from './pages/Admin';
+import { WaitingPage } from './pages/Waiting';
 
 export function App() {
-  const { isLoading, user } = useAuth();
+  const { isLoading, user, status, isAdmin, refresh } = useAccess();
 
   if (isLoading) {
     return (
@@ -30,14 +32,22 @@ export function App() {
     );
   }
 
+  if (status !== 'approved') {
+    return <WaitingPage onCheckAgain={refresh} />;
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<Navigate to="/directory" replace />} />
-      <Route element={<AppLayout />}>
+      <Route element={<AppLayout isAdmin={isAdmin} />}>
         <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/forms" element={<FormsPage />} />
         <Route path="/our-pto" element={<OurPtoPage />} />
+        <Route
+          path="/admin"
+          element={isAdmin ? <AdminPage /> : <Navigate to="/directory" replace />}
+        />
         <Route path="/" element={<Navigate to="/directory" replace />} />
         <Route path="*" element={<Navigate to="/directory" replace />} />
       </Route>
