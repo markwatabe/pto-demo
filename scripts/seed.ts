@@ -6,19 +6,20 @@
  * Idempotent: deletes all existing families/parents/children/teachers first,
  * then recreates a fresh random sample. Safe to re-run.
  *
- * Requires INSTANT_ADMIN_TOKEN and VITE_INSTANT_APP_ID in .env.
+ * Requires VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.
+ * The service-role key bypasses RLS — this script must never run client-side.
  */
 import 'dotenv/config';
-import { init, id } from '@instantdb/admin';
-import schema from '../src/instant.schema';
+import { randomUUID } from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
 
-const appId = process.env.VITE_INSTANT_APP_ID;
-const adminToken = process.env.INSTANT_ADMIN_TOKEN;
+const url = process.env.VITE_SUPABASE_URL;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!appId) throw new Error('Missing VITE_INSTANT_APP_ID in .env');
-if (!adminToken) throw new Error('Missing INSTANT_ADMIN_TOKEN in .env');
+if (!url) throw new Error('Missing VITE_SUPABASE_URL in .env');
+if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY in .env');
 
-const db = init({ appId, adminToken, schema });
+const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
 const FAMILY_COUNT = 50;
 
@@ -90,19 +91,35 @@ function birthDate(): string {
   return `${year}-${pad(month)}-${pad(day)}`;
 }
 
-async function deleteAll(entity: 'families' | 'parents' | 'children' | 'teachers') {
-  const data = await db.query({ [entity]: {} } as any);
-  const rows: { id: string }[] = (data as any)[entity] ?? [];
-  if (rows.length === 0) return 0;
-  await db.transact(rows.map((r) => db.tx[entity]![r.id]!.delete()));
-  return rows.length;
+// --- persistence helpers ------------------------------------------------------
+async function clearTable(table: string, keyColumn: string) {
+  const { error, count } = await db
+    .from(table)
+    .delete({ count: 'exact' })
+    .not(keyColumn, 'is', null); // supabase-js requires a filter on delete
+  if (error) throw new Error(`Failed to clear ${table}: ${error.message}`);
+  return count ?? 0;
+}
+
+async function insertAll(table: string, rows: Record<string, unknown>[]) {
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await db.from(table).insert(rows.slice(i, i + 500));
+    if (error) throw new Error(`Failed to insert into ${table}: ${error.message}`);
+  }
 }
 
 async function main() {
   console.log('Clearing existing directory data…');
-  for (const entity of ['children', 'parents', 'families', 'teachers'] as const) {
-    const n = await deleteAll(entity);
-    console.log(`  deleted ${n} ${entity}`);
+  // Children/parents cascade from families, but clear explicitly so counts print.
+  for (const [table, key] of [
+    ['child_past_teachers', 'child_id'],
+    ['children', 'id'],
+    ['parents', 'id'],
+    ['families', 'id'],
+    ['teachers', 'id'],
+  ] as const) {
+    const n = await clearTable(table, key);
+    console.log(`  deleted ${n} ${table}`);
   }
 
   // --- Teachers: 3 per grade, K–5 -------------------------------------------
@@ -110,35 +127,31 @@ async function main() {
     TEACHER_LAST.flatMap((last) => TEACHER_FIRST.map((first) => ({ first, last }))),
   );
   const teachers: { id: string; grade: number }[] = [];
+  const teacherRows: Record<string, unknown>[] = [];
   let nameIdx = 0;
   for (let grade = 0; grade <= 5; grade++) {
     for (let k = 0; k < 3; k++) {
-      const tid = id();
+      const tid = randomUUID();
       const nm = teacherNames[nameIdx++]!;
       teachers.push({ id: tid, grade });
-      await db.transact(
-        db.tx.teachers![tid]!.update({
-          firstName: nm.first,
-          lastName: nm.last,
-          grade,
-        }),
-      );
+      teacherRows.push({ id: tid, first_name: nm.first, last_name: nm.last, grade });
     }
   }
+  await insertAll('teachers', teacherRows);
   console.log(`Created ${teachers.length} teachers (grades K–5).`);
 
   const teachersByGrade = (g: number) => teachers.filter((t) => t.grade === g);
 
   // --- Families --------------------------------------------------------------
-  let parentCount = 0;
-  let childCount = 0;
+  const familyRows: Record<string, unknown>[] = [];
+  const parentRows: Record<string, unknown>[] = [];
+  const childRows: Record<string, unknown>[] = [];
+  const pastTeacherRows: Record<string, unknown>[] = [];
 
   for (let f = 0; f < FAMILY_COUNT; f++) {
-    const familyId = id();
+    const familyId = randomUUID();
     const familyName = pick(LAST_NAMES);
-    const txs: any[] = [];
-
-    txs.push(db.tx.families![familyId]!.update({ name: familyName }));
+    familyRows.push({ id: familyId, name: familyName });
 
     // The first 10 families have a second parent with a different last name
     // (parents don't always share a surname). Those families always get 2 parents.
@@ -148,64 +161,62 @@ async function main() {
     const numParents = differentSecondSurname || chance(0.75) ? 2 : 1;
     const street = `${1000 + rand(8000)} ${pick(STREETS)}`;
     for (let p = 0; p < numParents; p++) {
-      const pid = id();
       const first = pick(FIRST_NAMES);
       // Second parent of a mixed-surname family gets a different last name.
       const last =
         differentSecondSurname && p === 1 ? pickDifferent(LAST_NAMES, familyName) : familyName;
       const emailLast = last.toLowerCase().replace(/[^a-z]/g, '');
       const hasAddress = chance(0.7);
-      txs.push(
-        db.tx.parents![pid]!
-          .update({
-            firstName: first,
-            lastName: last,
-            email: `${first.toLowerCase()}.${emailLast}@example.com`,
-            // Address/phones are optional — only sometimes present.
-            ...(hasAddress
-              ? { street, city: 'Lexington', state: 'MA', zip: '02421' }
-              : {}),
-            ...(chance(0.6) ? { homePhone: phone() } : {}),
-            ...(chance(0.5) ? { mobilePhone: phone() } : {}),
-            ...(chance(0.3) ? { workPhone: phone() } : {}),
-          })
-          .link({ family: familyId }),
-      );
-      parentCount++;
+      parentRows.push({
+        id: randomUUID(),
+        family_id: familyId,
+        first_name: first,
+        last_name: last,
+        email: `${first.toLowerCase()}.${emailLast}@example.com`,
+        // Address/phones are optional — only sometimes present.
+        ...(hasAddress ? { street, city: 'Lexington', state: 'MA', zip: '02421' } : {}),
+        ...(chance(0.6) ? { home_phone: phone() } : {}),
+        ...(chance(0.5) ? { mobile_phone: phone() } : {}),
+        ...(chance(0.3) ? { work_phone: phone() } : {}),
+      });
     }
 
     // 1–4 children.
     const numChildren = 1 + rand(4);
     for (let c = 0; c < numChildren; c++) {
-      const cid = id();
+      const childId = randomUUID();
       const currentGrade = rand(6); // 0–5
       const current = pick(teachersByGrade(currentGrade));
 
       // Past teachers: from grades below the current one, 0–3 of them.
       const lowerGradeTeachers = teachers.filter((t) => t.grade < currentGrade);
-      const past = shuffle(lowerGradeTeachers).slice(0, Math.min(rand(4), lowerGradeTeachers.length));
-
-      txs.push(
-        db.tx.children![cid]!
-          .update({
-            firstName: pick(FIRST_NAMES),
-            lastName: familyName,
-            birthDate: birthDate(),
-          })
-          .link({
-            family: familyId,
-            currentTeacher: current.id,
-            ...(past.length ? { pastTeachers: past.map((t) => t.id) } : {}),
-          }),
+      const past = shuffle(lowerGradeTeachers).slice(
+        0,
+        Math.min(rand(4), lowerGradeTeachers.length),
       );
-      childCount++;
-    }
 
-    await db.transact(txs);
+      childRows.push({
+        id: childId,
+        family_id: familyId,
+        current_teacher_id: current.id,
+        first_name: pick(FIRST_NAMES),
+        last_name: familyName,
+        birth_date: birthDate(),
+      });
+      for (const t of past) {
+        pastTeacherRows.push({ child_id: childId, teacher_id: t.id });
+      }
+    }
   }
 
+  // Insert in FK order: families before parents/children, children before links.
+  await insertAll('families', familyRows);
+  await insertAll('parents', parentRows);
+  await insertAll('children', childRows);
+  await insertAll('child_past_teachers', pastTeacherRows);
+
   console.log(
-    `Seeded ${FAMILY_COUNT} families, ${parentCount} parents, ${childCount} children.`,
+    `Seeded ${familyRows.length} families, ${parentRows.length} parents, ${childRows.length} children.`,
   );
   console.log('Done.');
 }
