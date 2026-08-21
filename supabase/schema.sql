@@ -1,6 +1,14 @@
 -- PTO family directory schema. Apply once via the Supabase SQL editor.
--- Idempotent: drops and recreates the directory tables.
+-- Idempotent: drops and recreates all tables. NOTE: re-running wipes
+-- approval state (profiles/admins) as well as directory data; run
+-- `pnpm seed` afterwards to re-bootstrap the first admin.
 
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+drop function if exists public.is_approved();
+drop function if exists public.is_admin();
+drop table if exists admins;
+drop table if exists profiles;
 drop table if exists child_past_teachers;
 drop table if exists children;
 drop table if exists parents;
@@ -57,22 +65,92 @@ create table child_past_teachers (
   primary key (child_id, teacher_id)
 );
 
--- Directory is readable by signed-in users only. No client-side write
--- policies exist; the seed script writes with the service-role key, which
--- bypasses RLS.
+-- Approval workflow: every auth user gets a profiles row (via trigger),
+-- pending until an admin approves. admins rows mark who can approve.
+create table profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  email text not null,
+  status text not null default 'pending' check (status in ('pending', 'approved')),
+  requested_at timestamptz not null default now(),
+  approved_at timestamptz,
+  approved_by uuid references auth.users (id)
+);
+
+create table admins (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  email text not null,
+  granted_at timestamptz not null default now(),
+  granted_by uuid references auth.users (id)
+);
+
+-- Helpers for RLS policies. security definer lets policies call them
+-- without recursing through profiles/admins' own policies.
+create or replace function public.is_admin()
+returns boolean
+language sql stable security definer
+set search_path = public
+as $$
+  select exists (select 1 from admins where user_id = auth.uid());
+$$;
+
+create or replace function public.is_approved()
+returns boolean
+language sql stable security definer
+set search_path = public
+as $$
+  select exists (select 1 from profiles where id = auth.uid() and status = 'approved')
+      or public.is_admin();
+$$;
+
+-- Every new auth user gets a pending profile row at sign-up time.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email)
+  values (new.id, coalesce(new.email, ''))
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Directory is readable by APPROVED users only (pending users are locked
+-- out at the database). Approving and granting/revoking admin are the only
+-- client-side writes, restricted to admins; the seed script writes with the
+-- service-role key, which bypasses RLS.
 alter table families enable row level security;
 alter table teachers enable row level security;
 alter table parents enable row level security;
 alter table children enable row level security;
 alter table child_past_teachers enable row level security;
+alter table profiles enable row level security;
+alter table admins enable row level security;
 
-create policy "authenticated can read" on families
-  for select to authenticated using (true);
-create policy "authenticated can read" on teachers
-  for select to authenticated using (true);
-create policy "authenticated can read" on parents
-  for select to authenticated using (true);
-create policy "authenticated can read" on children
-  for select to authenticated using (true);
-create policy "authenticated can read" on child_past_teachers
-  for select to authenticated using (true);
+create policy "approved can read" on families
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on teachers
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on parents
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on children
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on child_past_teachers
+  for select to authenticated using (public.is_approved());
+
+create policy "own or admin can read" on profiles
+  for select to authenticated using (id = auth.uid() or public.is_admin());
+create policy "admin can update" on profiles
+  for update to authenticated using (public.is_admin()) with check (public.is_admin());
+
+create policy "own or admin can read" on admins
+  for select to authenticated using (user_id = auth.uid() or public.is_admin());
+create policy "admin can grant" on admins
+  for insert to authenticated with check (public.is_admin());
+create policy "admin can revoke others" on admins
+  for delete to authenticated using (public.is_admin() and user_id <> auth.uid());
