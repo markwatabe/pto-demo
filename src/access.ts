@@ -53,6 +53,9 @@ export function useAccess(): Access {
         status: approved || isAdmin ? 'approved' : 'pending',
         isAdmin,
       });
+    }).catch(() => {
+      if (cancelled) return;
+      setState({ isLoading: false, status: 'pending', isAdmin: false });
     });
     return () => {
       cancelled = true;
