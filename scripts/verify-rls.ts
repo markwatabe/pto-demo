@@ -28,6 +28,8 @@ const TABLES = [
   'child_past_teachers',
   'profiles',
   'admins',
+  'green_team_shifts',
+  'shift_volunteers',
 ];
 
 async function countRows(client: ReturnType<typeof createClient>, table: string) {
