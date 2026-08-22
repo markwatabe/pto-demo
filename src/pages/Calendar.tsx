@@ -28,7 +28,10 @@ function startOfWeek(d: Date): Date {
 }
 
 function shiftToEvent(shift: Shift): CalendarEvent {
-  const names = shift.volunteers.map((v) => `${v.firstName} ${v.lastName}`).join(', ');
+  const names = shift.volunteers
+    .map((v) => `${v.firstName} ${v.lastName}`)
+    .sort((a, b) => a.localeCompare(b))
+    .join(', ');
   return {
     id: shift.id,
     title: `Green Team: ${names || 'unfilled'}`,
