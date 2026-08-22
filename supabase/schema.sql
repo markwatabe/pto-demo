@@ -4,6 +4,8 @@
 -- `pnpm seed` afterwards to re-bootstrap the first admin.
 
 drop trigger if exists on_auth_user_created on auth.users;
+drop table if exists shift_volunteers;
+drop table if exists green_team_shifts;
 drop table if exists admins;
 drop table if exists profiles;
 drop table if exists child_past_teachers;
@@ -43,7 +45,9 @@ create table parents (
   zip text,
   home_phone text,
   work_phone text,
-  mobile_phone text
+  mobile_phone text,
+  -- Green Team volunteer pool; shown as directory badges in a future pass.
+  green_team_volunteer boolean not null default false
 );
 create index parents_family_id_idx on parents (family_id);
 create index parents_last_name_idx on parents (last_name);
@@ -63,6 +67,22 @@ create table child_past_teachers (
   child_id uuid not null references children (id) on delete cascade,
   teacher_id uuid not null references teachers (id) on delete cascade,
   primary key (child_id, teacher_id)
+);
+
+-- Green Team lunch shifts: two one-hour slots per school day, each covered
+-- by 1–2 parent volunteers. Seed-only data this pass (no client writes).
+create table green_team_shifts (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  slot text not null check (slot in ('11:30', '12:30')),
+  unique (date, slot)
+);
+create index green_team_shifts_date_idx on green_team_shifts (date);
+
+create table shift_volunteers (
+  shift_id uuid not null references green_team_shifts (id) on delete cascade,
+  parent_id uuid not null references parents (id) on delete cascade,
+  primary key (shift_id, parent_id)
 );
 
 -- Approval workflow: every auth user gets a profiles row (via trigger),
@@ -131,6 +151,8 @@ alter table children enable row level security;
 alter table child_past_teachers enable row level security;
 alter table profiles enable row level security;
 alter table admins enable row level security;
+alter table green_team_shifts enable row level security;
+alter table shift_volunteers enable row level security;
 
 create policy "approved can read" on families
   for select to authenticated using (public.is_approved());
@@ -141,6 +163,10 @@ create policy "approved can read" on parents
 create policy "approved can read" on children
   for select to authenticated using (public.is_approved());
 create policy "approved can read" on child_past_teachers
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on green_team_shifts
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on shift_volunteers
   for select to authenticated using (public.is_approved());
 
 create policy "own or admin can read" on profiles
