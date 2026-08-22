@@ -6,6 +6,7 @@ packages:
   - '../components/packages/core'
   - '../components/packages/types'
   - '../components/packages/data-table'
+  - '../components/packages/calendar'
 
 # pnpm blocks install scripts by default. esbuild (a Vite dependency)
 # postinstalls its native binary; allow only that.

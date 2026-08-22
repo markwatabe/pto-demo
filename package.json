@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@apygee/atoms": "workspace:*",
+    "@apygee/calendar": "workspace:*",
     "@apygee/core": "workspace:*",
     "@apygee/data-table": "workspace:*",
+    "@apygee/types": "workspace:*",
     "@supabase/supabase-js": "^2.112.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

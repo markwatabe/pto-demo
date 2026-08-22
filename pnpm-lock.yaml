@@ -11,12 +11,18 @@ importers:
       '@apygee/atoms':
         specifier: workspace:*
         version: link:../components/packages/atoms
+      '@apygee/calendar':
+        specifier: workspace:*
+        version: link:../components/packages/calendar
       '@apygee/core':
         specifier: workspace:*
         version: link:../components/packages/core
       '@apygee/data-table':
         specifier: workspace:*
         version: link:../components/packages/data-table
+      '@apygee/types':
+        specifier: workspace:*
+        version: link:../components/packages/types
       '@supabase/supabase-js':
         specifier: ^2.112.3
         version: 2.112.3
@@ -103,6 +109,8 @@ importers:
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@20.19.43)(jsdom@24.1.3)
+
+  ../components/packages/calendar: {}
 
   ../components/packages/core:
     dependencies:
