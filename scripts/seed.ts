@@ -26,7 +26,7 @@ if (!adminEmail) throw new Error('Missing ADMIN_EMAIL in .env');
 
 const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-const FAMILY_COUNT = 50;
+const FAMILY_COUNT = 80;
 
 const LAST_NAMES = [
   'Donwin', 'Anderson', 'Patel', 'Nguyen', 'Garcia', 'Kim', 'O\'Brien', 'Rossi',
