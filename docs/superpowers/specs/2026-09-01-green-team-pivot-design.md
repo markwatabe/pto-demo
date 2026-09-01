@@ -127,8 +127,10 @@ as suggestions, then everyone else.
 - **Home** (`/`) → redirects to `/calendar` (was `/directory`).
 - **Calendar** (existing page, updated): shift titles/details use `volunteers.name`;
   shifts that include the signed-in user (email match) render in a distinct tone;
-  school closures render as background-kind CalendarEvents labeled with the reason
-  ("No school · Thanksgiving"). Still read-only for non-admins.
+  school closures render as labeled neutral-tone events spanning school hours
+  ("No school · Thanksgiving") — the component's background-kind events carry no
+  label, so regular events are used; no shifts exist on closure days, so they
+  never compete for lanes. Still read-only for non-admins.
 - **My availability** (`/availability`, new): the signed-in user's volunteer record —
   a Mon–Thu × Early/Late checkbox grid, frequency select, backfill toggle, notes.
   If no volunteer row matches their email, the page offers "Join the Green Team" which
