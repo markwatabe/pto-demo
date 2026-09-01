@@ -146,9 +146,11 @@ as suggestions, then everyone else.
   shift/volunteer-pool generation and the `green_team_volunteer` logic. Never touches
   `volunteers`, `availability`, `school_year`, `school_closures`, `green_team_shifts`,
   `shift_volunteers` (real data now).
-- `scripts/verify-rls.ts`: table list becomes the 11 read-gated tables (adds
-  `volunteers`, `availability`, `school_closures`; `school_year` excluded from the
-  service-role `> 0` assertion until an admin sets it — verified as anon-0 only).
+- `scripts/verify-rls.ts`: table list becomes all 13 read-gated tables. Only the
+  seven seed-backed tables (directory + profiles + admins) assert service-role
+  rows `> 0`; roster/schedule tables (volunteers, availability, shifts,
+  assignments, school_year, school_closures) hold real data that may
+  legitimately be empty and are checked as anon-zero only.
 - Applying the new schema wipes shifts/assignments (drop-and-recreate); that is
   acceptable now — the real schedule is regenerated from imported availability.
 
