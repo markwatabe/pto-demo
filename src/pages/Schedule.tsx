@@ -34,7 +34,13 @@ import {
 
 type Closure = { date: string; reason: string | null };
 type SchoolYear = { starts_on: string; ends_on: string };
-type DayShift = ShiftRow & { volunteers: { id: string; name: string }[] };
+type AttendanceStatus = 'scheduled' | 'attended' | 'missed';
+type DayAssignment = {
+  volunteer_id: string;
+  status: AttendanceStatus;
+  volunteer: { id: string; name: string };
+};
+type DayShift = ShiftRow & { assignments: DayAssignment[] };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SLOT_LABEL: Record<Slot, string> = {
@@ -289,7 +295,7 @@ export function SchedulePage() {
     const [shiftsRes, rosterRes, availRes] = await Promise.all([
       supabase
         .from('green_team_shifts')
-        .select('id, date, slot, volunteers:volunteers!shift_volunteers ( id, name )')
+        .select('id, date, slot, assignments:shift_volunteers ( volunteer_id, status, volunteer:volunteers ( id, name ) )')
         .eq('date', dayDate),
       supabase.from('volunteers').select('id, name, frequency, backfill').order('name'),
       supabase
@@ -342,8 +348,25 @@ export function SchedulePage() {
     await loadDay();
   }
 
+  async function markAttendance(shift: DayShift, volunteerId: string, status: AttendanceStatus) {
+    setDayBusy(`${shift.id}:${volunteerId}`);
+    setError(null);
+    const { data, error: updateError } = await supabase
+      .from('shift_volunteers')
+      .update({ status })
+      .eq('shift_id', shift.id)
+      .eq('volunteer_id', volunteerId)
+      .select('shift_id');
+    setDayBusy(null);
+    if (updateError || (data ?? []).length === 0) {
+      setError(updateError?.message ?? 'Could not record attendance.');
+      return;
+    }
+    await loadDay();
+  }
+
   function candidatesFor(shift: DayShift): { available: RosterVolunteer[]; backfill: RosterVolunteer[]; others: RosterVolunteer[] } {
-    const assigned = new Set(shift.volunteers.map((v) => v.id));
+    const assigned = new Set(shift.assignments.map((a) => a.volunteer_id));
     const availableIds = new Set(
       dayAvailability.filter((a) => a.slot === shift.slot).map((a) => a.volunteer_id),
     );
@@ -530,22 +553,44 @@ export function SchedulePage() {
                   <Stack gap="lg">
                     {dayShifts.map((shift) => {
                       const groups = candidatesFor(shift);
+                      const isPast = shift.date < isoDate(new Date());
                       return (
                         <Stack key={shift.id} gap="sm">
                           <Strong>{SLOT_LABEL[shift.slot]}</Strong>
-                          {shift.volunteers.length === 0 ? (
+                          {shift.assignments.length === 0 ? (
                             <Body>Nobody assigned.</Body>
                           ) : (
                             <Stack gap="xs">
-                              {shift.volunteers.map((v) => (
-                                <Inline key={v.id} gap="sm" align="center" wrap>
-                                  <Body>{v.name}</Body>
+                              {shift.assignments.map((a) => (
+                                <Inline key={a.volunteer_id} gap="sm" align="center" wrap>
+                                  <Body>{a.volunteer.name}</Body>
+                                  {isPast ? (
+                                    <>
+                                      <Button
+                                        variant={a.status === 'attended' ? 'primary' : 'secondary'}
+                                        onClick={() => markAttendance(shift, a.volunteer_id, 'attended')}
+                                        disabled={dayBusy === `${shift.id}:${a.volunteer_id}`}
+                                      >
+                                        ✓ Attended
+                                      </Button>
+                                      <Button
+                                        variant={a.status === 'missed' ? 'primary' : 'secondary'}
+                                        onClick={() => markAttendance(shift, a.volunteer_id, 'missed')}
+                                        disabled={dayBusy === `${shift.id}:${a.volunteer_id}`}
+                                      >
+                                        ✗ Missed
+                                      </Button>
+                                      {a.status === 'scheduled' ? (
+                                        <Caption>attendance not recorded</Caption>
+                                      ) : null}
+                                    </>
+                                  ) : null}
                                   <Button
-                                    variant="secondary"
-                                    onClick={() => removeFromShift(shift, v.id)}
-                                    disabled={dayBusy === `${shift.id}:${v.id}`}
+                                    variant="ghost"
+                                    onClick={() => removeFromShift(shift, a.volunteer_id)}
+                                    disabled={dayBusy === `${shift.id}:${a.volunteer_id}`}
                                   >
-                                    {dayBusy === `${shift.id}:${v.id}` ? 'Removing…' : 'Remove'}
+                                    {dayBusy === `${shift.id}:${a.volunteer_id}` ? 'Working…' : 'Remove'}
                                   </Button>
                                 </Inline>
                               ))}

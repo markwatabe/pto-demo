@@ -120,6 +120,8 @@ create table school_closures (
 create table shift_volunteers (
   shift_id uuid not null references green_team_shifts (id) on delete cascade,
   volunteer_id uuid not null references volunteers (id) on delete cascade,
+  -- Attendance: 'scheduled' until an admin marks a past shift.
+  status text not null default 'scheduled' check (status in ('scheduled', 'attended', 'missed')),
   primary key (shift_id, volunteer_id)
 );
 
@@ -269,6 +271,8 @@ create policy "admin can assign" on shift_volunteers
   for insert to authenticated with check (public.is_admin());
 create policy "admin can unassign" on shift_volunteers
   for delete to authenticated using (public.is_admin());
+create policy "admin can mark attendance" on shift_volunteers
+  for update to authenticated using (public.is_admin()) with check (public.is_admin());
 
 create policy "own or admin can read" on profiles
   for select to authenticated using (id = auth.uid() or public.is_admin());
