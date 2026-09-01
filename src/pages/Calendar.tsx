@@ -42,10 +42,24 @@ function shiftToEvent(shift: Shift): CalendarEvent {
   };
 }
 
+type Closure = { date: string; reason: string | null };
+
+// Closures render as labeled all-school-hours events; no shifts exist on
+// these days so they never compete for lanes.
+function closureToEvent(closure: Closure): CalendarEvent {
+  return {
+    id: `closure-${closure.date}`,
+    title: closure.reason ? `No school · ${closure.reason}` : 'No school',
+    startsAt: `${closure.date}T08:00:00`,
+    endsAt: `${closure.date}T15:00:00`,
+  };
+}
+
 type ShiftsResult = {
   isLoading: boolean;
   error: { message: string } | null;
   shifts: Shift[];
+  closures: Closure[];
 };
 
 function useShifts(): ShiftsResult {
@@ -53,21 +67,23 @@ function useShifts(): ShiftsResult {
     isLoading: true,
     error: null,
     shifts: [],
+    closures: [],
   });
 
   useEffect(() => {
     let cancelled = false;
-    supabase
-      .from('green_team_shifts')
-      .select(SHIFTS_SELECT)
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        setResult({
-          isLoading: false,
-          error,
-          shifts: (data ?? []) as unknown as Shift[],
-        });
+    Promise.all([
+      supabase.from('green_team_shifts').select(SHIFTS_SELECT),
+      supabase.from('school_closures').select('date, reason'),
+    ]).then(([shiftsRes, closuresRes]) => {
+      if (cancelled) return;
+      setResult({
+        isLoading: false,
+        error: shiftsRes.error ?? closuresRes.error,
+        shifts: (shiftsRes.data ?? []) as unknown as Shift[],
+        closures: (closuresRes.data ?? []) as Closure[],
       });
+    });
     return () => {
       cancelled = true;
     };
@@ -80,9 +96,12 @@ export function CalendarPage() {
   const { user } = useAuth();
   const myEmail = (user?.email ?? '').toLowerCase();
   const [viewStart, setViewStart] = useState<Date>(() => startOfWeek(new Date()));
-  const { isLoading, error, shifts } = useShifts();
+  const { isLoading, error, shifts, closures } = useShifts();
 
-  const events = useMemo(() => shifts.map(shiftToEvent), [shifts]);
+  const events = useMemo(
+    () => [...shifts.map(shiftToEvent), ...closures.map(closureToEvent)],
+    [shifts, closures],
+  );
   const myShiftIds = useMemo(
     () =>
       new Set(
@@ -114,7 +133,11 @@ export function CalendarPage() {
             viewStart={viewStart}
             onViewStartChange={setViewStart}
             defaultZoom="3"
-            getEventTone={(event) => (myShiftIds.has(String(event.id)) ? 'primary' : 'success')}
+            getEventTone={(event) => {
+              const id = String(event.id);
+              if (id.startsWith('closure-')) return 'neutral';
+              return myShiftIds.has(id) ? 'primary' : 'success';
+            }}
           />
         )}
       </Stack>
