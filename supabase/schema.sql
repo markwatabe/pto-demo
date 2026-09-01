@@ -6,6 +6,10 @@
 drop trigger if exists on_auth_user_created on auth.users;
 drop table if exists shift_volunteers;
 drop table if exists green_team_shifts;
+drop table if exists availability;
+drop table if exists volunteers;
+drop table if exists school_closures;
+drop table if exists school_year;
 drop table if exists admins;
 drop table if exists profiles;
 drop table if exists child_past_teachers;
@@ -45,9 +49,7 @@ create table parents (
   zip text,
   home_phone text,
   work_phone text,
-  mobile_phone text,
-  -- Green Team volunteer pool; shown as directory badges in a future pass.
-  green_team_volunteer boolean not null default false
+  mobile_phone text
 );
 create index parents_family_id_idx on parents (family_id);
 create index parents_last_name_idx on parents (last_name);
@@ -79,10 +81,46 @@ create table green_team_shifts (
 );
 create index green_team_shifts_date_idx on green_team_shifts (date);
 
+-- Volunteer roster: imported from the sign-up form (volunteers.csv) and
+-- edited in-app. Linked to signed-in users by email match only.
+create table volunteers (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  name text not null,
+  veteran boolean not null default false,
+  grades text,
+  frequency text not null default 'monthly' check (frequency in ('monthly', 'biweekly', 'custom')),
+  frequency_note text,
+  cori text not null default 'unsure' check (cori in ('yes', 'no', 'unsure')),
+  backfill boolean not null default false,
+  notes text
+);
+
+-- Recurring weekly availability: weekday 1=Mon .. 4=Thu (lunch shifts run
+-- Monday-Thursday only); slot values match green_team_shifts.slot.
+create table availability (
+  volunteer_id uuid not null references volunteers (id) on delete cascade,
+  weekday smallint not null check (weekday between 1 and 4),
+  slot text not null check (slot in ('11:30', '12:30')),
+  primary key (volunteer_id, weekday, slot)
+);
+
+-- Single-row school-year window; school days are Mon-Thu inside it minus closures.
+create table school_year (
+  id boolean primary key default true check (id),
+  starts_on date not null,
+  ends_on date not null
+);
+
+create table school_closures (
+  date date primary key,
+  reason text
+);
+
 create table shift_volunteers (
   shift_id uuid not null references green_team_shifts (id) on delete cascade,
-  parent_id uuid not null references parents (id) on delete cascade,
-  primary key (shift_id, parent_id)
+  volunteer_id uuid not null references volunteers (id) on delete cascade,
+  primary key (shift_id, volunteer_id)
 );
 
 -- Approval workflow: every auth user gets a profiles row (via trigger),
@@ -153,6 +191,10 @@ alter table profiles enable row level security;
 alter table admins enable row level security;
 alter table green_team_shifts enable row level security;
 alter table shift_volunteers enable row level security;
+alter table volunteers enable row level security;
+alter table availability enable row level security;
+alter table school_year enable row level security;
+alter table school_closures enable row level security;
 
 create policy "approved can read" on families
   for select to authenticated using (public.is_approved());
@@ -168,6 +210,62 @@ create policy "approved can read" on green_team_shifts
   for select to authenticated using (public.is_approved());
 create policy "approved can read" on shift_volunteers
   for select to authenticated using (public.is_approved());
+
+create policy "approved can read" on volunteers
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on availability
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on school_year
+  for select to authenticated using (public.is_approved());
+create policy "approved can read" on school_closures
+  for select to authenticated using (public.is_approved());
+
+-- Self-service: a signed-in user manages their own roster row and
+-- availability, matched by email. Admins manage everyone.
+create policy "admin or self can insert" on volunteers
+  for insert to authenticated
+  with check (public.is_admin() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')));
+create policy "admin or self can update" on volunteers
+  for update to authenticated
+  using (public.is_admin() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')))
+  with check (public.is_admin() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')));
+create policy "admin can delete" on volunteers
+  for delete to authenticated using (public.is_admin());
+
+create policy "admin or owner can insert" on availability
+  for insert to authenticated
+  with check (public.is_admin() or exists (
+    select 1 from volunteers v
+    where v.id = volunteer_id
+      and lower(v.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  ));
+create policy "admin or owner can delete" on availability
+  for delete to authenticated
+  using (public.is_admin() or exists (
+    select 1 from volunteers v
+    where v.id = volunteer_id
+      and lower(v.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  ));
+
+create policy "admin can set" on school_year
+  for insert to authenticated with check (public.is_admin());
+create policy "admin can update" on school_year
+  for update to authenticated using (public.is_admin()) with check (public.is_admin());
+
+create policy "admin can add" on school_closures
+  for insert to authenticated with check (public.is_admin());
+create policy "admin can remove" on school_closures
+  for delete to authenticated using (public.is_admin());
+
+-- The schedule generator and roster editor run client-side as an admin.
+create policy "admin can add" on green_team_shifts
+  for insert to authenticated with check (public.is_admin());
+create policy "admin can remove" on green_team_shifts
+  for delete to authenticated using (public.is_admin());
+create policy "admin can assign" on shift_volunteers
+  for insert to authenticated with check (public.is_admin());
+create policy "admin can unassign" on shift_volunteers
+  for delete to authenticated using (public.is_admin());
 
 create policy "own or admin can read" on profiles
   for select to authenticated using (id = auth.uid() or public.is_admin());
