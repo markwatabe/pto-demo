@@ -96,6 +96,18 @@ export function SchedulePage() {
     setIsLoading(false);
   }, []);
 
+  const loadClosures = useCallback(async () => {
+    const { data, error: closuresError } = await supabase
+      .from('school_closures')
+      .select('date, reason')
+      .order('date', { ascending: true });
+    if (closuresError) {
+      setError(closuresError.message);
+      return;
+    }
+    setClosures((data ?? []) as Closure[]);
+  }, []);
+
   useEffect(() => {
     loadBase();
   }, [loadBase]);
@@ -155,7 +167,7 @@ export function SchedulePage() {
     );
     setClosureDate('');
     setClosureReason('');
-    await loadBase();
+    await loadClosures();
   }
 
   async function removeClosure(date: string) {
@@ -172,7 +184,7 @@ export function SchedulePage() {
       setError(deleteError?.message ?? 'Could not remove the closure.');
       return;
     }
-    await loadBase();
+    await loadClosures();
   }
 
   async function generate() {
