@@ -19,10 +19,14 @@ import { supabase } from '../supabase';
 import {
   buildDraft,
   isSchoolDay,
+  isoDate,
+  toLocalDate,
+  TRAILING_WINDOW_DAYS,
   weekdayOf,
   type AssignmentRow,
   type AvailabilityRow,
   type DraftPlan,
+  type Frequency,
   type RosterVolunteer,
   type ShiftRow,
   type Slot,
@@ -36,6 +40,11 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SLOT_LABEL: Record<Slot, string> = {
   '11:30': 'Early (11:30–12:30)',
   '12:30': 'Late (12:30–1:30)',
+};
+const FREQ_LABEL: Record<Frequency, string> = {
+  monthly: '1×/month',
+  biweekly: '2×/month',
+  custom: 'custom',
 };
 
 async function chunkedInsert(table: string, rows: Record<string, unknown>[]): Promise<string | null> {
@@ -160,6 +169,7 @@ export function SchedulePage() {
     setClosureBusy(null);
     if (deleteError) {
       setError(deleteError.message);
+      await loadClosures();
       return;
     }
     setNotice(
@@ -192,8 +202,8 @@ export function SchedulePage() {
       setError('Generation range needs valid YYYY-MM-DD dates with the end after the start.');
       return;
     }
-    if (!startsOn || !endsOn) {
-      setError('Set the school year first.');
+    if (!DATE_RE.test(startsOn) || !DATE_RE.test(endsOn)) {
+      setError('Save a valid school year first.');
       return;
     }
     const from = genFrom < startsOn ? startsOn : genFrom;
@@ -204,10 +214,10 @@ export function SchedulePage() {
     setSummary(null);
 
     // Trailing window: budget scoring needs assignments up to 27 days back.
-    const [wy, wm, wd] = from.split('-').map(Number);
-    const windowStart = new Date(wy!, (wm ?? 1) - 1, (wd ?? 1) - 27);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const windowStartIso = `${windowStart.getFullYear()}-${pad(windowStart.getMonth() + 1)}-${pad(windowStart.getDate())}`;
+    const fromDate = toLocalDate(from);
+    const windowStartIso = isoDate(
+      new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate() - (TRAILING_WINDOW_DAYS - 1)),
+    );
 
     const [shiftsRes, availabilityRes, volunteersRes, closuresRes] = await Promise.all([
       supabase
@@ -266,7 +276,7 @@ export function SchedulePage() {
       return;
     }
     setSummary(plan.summary);
-    if (dayShifts) await loadDay();
+    if (dayShifts && DATE_RE.test(dayDate)) await loadDay();
   }
 
   const loadDay = useCallback(async () => {
@@ -477,6 +487,11 @@ export function SchedulePage() {
                     <Body>
                       {`${summary.schoolDays} school days · ${summary.shiftsCreated} new shifts · ${summary.slotsFilled} slots filled`}
                     </Body>
+                    {summary.overBudgetPicks > 0 ? (
+                      <Caption>
+                        {`${summary.overBudgetPicks} assignments exceed a volunteer's requested frequency — the roster is thinner than the schedule needs.`}
+                      </Caption>
+                    ) : null}
                     {summary.unfilled.length > 0 ? (
                       <Caption>
                         {`Understaffed: ${summary.unfilled
@@ -554,7 +569,9 @@ export function SchedulePage() {
                                       onClick={() => addToShift(shift, v.id)}
                                       disabled={dayBusy === `${shift.id}:${v.id}`}
                                     >
-                                      {dayBusy === `${shift.id}:${v.id}` ? 'Adding…' : `+ ${v.name}`}
+                                      {dayBusy === `${shift.id}:${v.id}`
+                                        ? 'Adding…'
+                                        : `+ ${v.name} · ${FREQ_LABEL[v.frequency]}`}
                                     </Button>
                                   ))}
                                 </Inline>

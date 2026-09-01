@@ -74,6 +74,8 @@ export type DraftPlan = {
     schoolDays: number;
     shiftsCreated: number;
     slotsFilled: number;
+    /** Picks made at or beyond the volunteer's frequency budget for that window. */
+    overBudgetPicks: number;
     unfilled: { date: string; slot: Slot; assigned: number }[];
   };
 };
@@ -144,7 +146,7 @@ export function buildDraft(args: {
     );
   };
 
-  const pickBest = (candidateIds: string[], date: string): string | null => {
+  const pickBest = (candidateIds: string[], date: string): { id: string; ratio: number } | null => {
     const windowStart = windowStartFor(date);
     let best: { id: string; ratio: number; total: number; last: string } | null = null;
     for (const id of candidateIds) {
@@ -170,13 +172,14 @@ export function buildDraft(args: {
           vol.name.localeCompare(volunteersById.get(best.id)!.name) < 0);
       if (better) best = cand;
     }
-    return best?.id ?? null;
+    return best ? { id: best.id, ratio: best.ratio } : null;
   };
 
   const shiftInserts: ShiftRow[] = [];
   const assignmentInserts: AssignmentRow[] = [];
   const unfilled: DraftPlan['summary']['unfilled'] = [];
   let slotsFilled = 0;
+  let overBudgetPicks = 0;
 
   const days = schoolDaysBetween(from, to, closures);
   for (const date of days) {
@@ -208,10 +211,11 @@ export function buildDraft(args: {
         const sameDay = availableIds.filter((id) => !current.has(id) && onThisDate.has(id));
         const picked = pickBest(fresh, date) ?? pickBest(sameDay, date);
         if (!picked) break;
-        record(picked, shift.id, date);
-        inRangeCount.set(picked, (inRangeCount.get(picked) ?? 0) + 1);
-        assignmentInserts.push({ shift_id: shift.id, volunteer_id: picked });
-        onThisDate.add(picked);
+        if (picked.ratio >= 1) overBudgetPicks++;
+        record(picked.id, shift.id, date);
+        inRangeCount.set(picked.id, (inRangeCount.get(picked.id) ?? 0) + 1);
+        assignmentInserts.push({ shift_id: shift.id, volunteer_id: picked.id });
+        onThisDate.add(picked.id);
         slotsFilled++;
       }
 
@@ -227,6 +231,7 @@ export function buildDraft(args: {
       schoolDays: days.length,
       shiftsCreated: shiftInserts.length,
       slotsFilled,
+      overBudgetPicks,
       unfilled,
     },
   };
