@@ -44,9 +44,14 @@ export function AppLayout({ isAdmin }: { isAdmin: boolean }) {
                 </NavLink>
               ))}
               {isAdmin ? (
-                <NavLink to="/admin" end>
-                  Admin
-                </NavLink>
+                <>
+                  <NavLink to="/admin" end>
+                    Admin
+                  </NavLink>
+                  <NavLink to="/admin/schedule" end>
+                    Schedule
+                  </NavLink>
+                </>
               ) : null}
             </Stack>
           </div>
