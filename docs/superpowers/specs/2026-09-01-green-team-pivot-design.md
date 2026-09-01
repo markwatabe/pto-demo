@@ -73,7 +73,7 @@ Writes:
 
 | Table | insert | update | delete |
 |---|---|---|---|
-| volunteers | admin OR self (email match, enforced in `with check`) | admin OR self | admin |
+| volunteers | admin OR (approved AND self email match) | admin OR (approved AND self) | admin |
 | availability | admin OR owner (email match via volunteers subquery) | — (edit = delete + insert) | admin OR owner |
 | school_year | admin | admin | — |
 | school_closures | admin | — | admin |

@@ -1,4 +1,4 @@
--- PTO family directory schema. Apply once via the Supabase SQL editor.
+-- Green Team scheduling + family directory schema. Apply via the Supabase SQL editor.
 -- Idempotent: drops and recreates all tables. NOTE: re-running wipes
 -- approval state (profiles/admins) as well as directory data; run
 -- `pnpm seed` afterwards to re-bootstrap the first admin.
@@ -71,8 +71,8 @@ create table child_past_teachers (
   primary key (child_id, teacher_id)
 );
 
--- Green Team lunch shifts: two one-hour slots per school day, each covered
--- by 1–2 parent volunteers. Seed-only data this pass (no client writes).
+-- Green Team lunch shifts: two one-hour slots per school day, covered by
+-- roster volunteers. Admins create/remove shifts and assignments client-side.
 create table green_team_shifts (
   id uuid primary key default gen_random_uuid(),
   date date not null,
@@ -85,7 +85,7 @@ create index green_team_shifts_date_idx on green_team_shifts (date);
 -- edited in-app. Linked to signed-in users by email match only.
 create table volunteers (
   id uuid primary key default gen_random_uuid(),
-  email text not null unique,
+  email text not null unique check (email = lower(email)),
   name text not null,
   veteran boolean not null default false,
   grades text,
@@ -224,11 +224,14 @@ create policy "approved can read" on school_closures
 -- availability, matched by email. Admins manage everyone.
 create policy "admin or self can insert" on volunteers
   for insert to authenticated
-  with check (public.is_admin() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')));
+  with check (public.is_admin()
+    or (public.is_approved() and lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))));
 create policy "admin or self can update" on volunteers
   for update to authenticated
-  using (public.is_admin() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')))
-  with check (public.is_admin() or lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')));
+  using (public.is_admin()
+    or (public.is_approved() and lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))))
+  with check (public.is_admin()
+    or (public.is_approved() and lower(email) = lower(coalesce(auth.jwt() ->> 'email', ''))));
 create policy "admin can delete" on volunteers
   for delete to authenticated using (public.is_admin());
 
