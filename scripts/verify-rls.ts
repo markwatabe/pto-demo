@@ -1,8 +1,12 @@
 /**
  * Verify RLS: unauthenticated (anon key, no session) reads must return zero
- * rows; the service-role key must see the seeded data.
+ * rows for every gated table; the service-role key must see the seeded data.
  *
  * Usage:  pnpm verify:rls   (run after pnpm seed)
+ *
+ * Seed-backed tables also assert service-role rows > 0. Roster/schedule
+ * tables (volunteers, availability, shifts, school calendar) hold real data
+ * that may legitimately be empty, so they are checked as anon-zero only.
  */
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
@@ -30,7 +34,22 @@ const TABLES = [
   'admins',
   'green_team_shifts',
   'shift_volunteers',
+  'volunteers',
+  'availability',
+  'school_year',
+  'school_closures',
 ];
+
+// Populated by pnpm seed — the service role must see rows here.
+const SEEDED = new Set([
+  'families',
+  'parents',
+  'children',
+  'teachers',
+  'child_past_teachers',
+  'profiles',
+  'admins',
+]);
 
 async function countRows(client: ReturnType<typeof createClient>, table: string) {
   const { count, error } = await client.from(table).select('*', { count: 'exact', head: true });
@@ -46,12 +65,13 @@ async function main() {
     const adminCount = await countRows(adminDb, table);
 
     const anonOk = anonCount === 0;
-    const adminOk = adminCount > 0;
+    const adminOk = SEEDED.has(table) ? adminCount > 0 : true;
     if (!anonOk || !adminOk) failed = true;
 
+    const adminNote = SEEDED.has(table) ? ' (want > 0)' : '';
     console.log(
       `${anonOk && adminOk ? 'PASS' : 'FAIL'}  ${table}: anon sees ${anonCount} (want 0), ` +
-        `service role sees ${adminCount} (want > 0)`,
+        `service role sees ${adminCount}${adminNote}`,
     );
   }
 

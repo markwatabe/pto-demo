@@ -4,7 +4,8 @@
  * Usage:  pnpm seed
  *
  * Idempotent: deletes all existing families/parents/children/teachers first,
- * then recreates a fresh random sample. Safe to re-run.
+ * then recreates a fresh random sample. Safe to re-run. Never touches the
+ * real Green Team data (volunteers, availability, shifts, school calendar).
  *
  * Requires VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and ADMIN_EMAIL
  * in .env. Bootstraps ADMIN_EMAIL as an approved admin (profiles/admins
@@ -155,8 +156,6 @@ async function main() {
   console.log('Clearing existing directory data…');
   // Children/parents cascade from families, but clear explicitly so counts print.
   for (const [table, key] of [
-    ['shift_volunteers', 'shift_id'],
-    ['green_team_shifts', 'id'],
     ['child_past_teachers', 'child_id'],
     ['children', 'id'],
     ['parents', 'id'],
@@ -254,63 +253,14 @@ async function main() {
     }
   }
 
-  // --- Green Team volunteer pool ---------------------------------------------
-  // ~25% of parents volunteer; top up randomly to guarantee a workable pool.
-  for (const p of parentRows) p.green_team_volunteer = chance(0.25);
-  let pool = parentRows.filter((p) => p.green_team_volunteer);
-  if (pool.length < 20) {
-    const extras = shuffle(parentRows.filter((p) => !p.green_team_volunteer)).slice(
-      0,
-      20 - pool.length,
-    );
-    for (const p of extras) p.green_team_volunteer = true;
-    pool = parentRows.filter((p) => p.green_team_volunteer);
-  }
-
-  // --- Green Team shifts: two per weekday, ~12 weeks around today -------------
-  // Dates ignore the real school calendar — this is demo data.
-  const shiftRows: Record<string, unknown>[] = [];
-  const shiftVolunteerRows: Record<string, unknown>[] = [];
-  const today = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-
-  for (let offset = -28; offset <= 56; offset++) {
-    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
-    const dow = day.getDay();
-    if (dow === 0 || dow === 6) continue; // school days only
-
-    const date = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
-    // ~25% of days one volunteer covers both slots.
-    const sharedVolunteerId = chance(0.25) ? (pick(pool).id as string) : null;
-
-    for (const slot of ['11:30', '12:30'] as const) {
-      const shiftId = randomUUID();
-      shiftRows.push({ id: shiftId, date, slot });
-
-      const count = chance(0.8) ? 2 : 1;
-      const volunteerIds = new Set<string>();
-      if (sharedVolunteerId) volunteerIds.add(sharedVolunteerId);
-      while (volunteerIds.size < count) volunteerIds.add(pick(pool).id as string);
-      for (const parentId of volunteerIds) {
-        shiftVolunteerRows.push({ shift_id: shiftId, parent_id: parentId });
-      }
-    }
-  }
-
-  // Insert in FK order: families before parents/children, children before links,
-  // parents before shift links.
+  // Insert in FK order: families before parents/children, children before links.
   await insertAll('families', familyRows);
   await insertAll('parents', parentRows);
   await insertAll('children', childRows);
   await insertAll('child_past_teachers', pastTeacherRows);
-  await insertAll('green_team_shifts', shiftRows);
-  await insertAll('shift_volunteers', shiftVolunteerRows);
 
   console.log(
     `Seeded ${familyRows.length} families, ${parentRows.length} parents, ${childRows.length} children.`,
-  );
-  console.log(
-    `Seeded ${shiftRows.length} green team shifts (${shiftVolunteerRows.length} volunteer slots, pool of ${pool.length}).`,
   );
   console.log('Done.');
 }
