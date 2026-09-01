@@ -3,8 +3,9 @@ import { Alert, PageHeader, PageShell, Spinner, Stack } from '@apygee/atoms';
 import { Calendar } from '@apygee/calendar';
 import type { CalendarEvent } from '@apygee/types';
 import { supabase } from '../supabase';
+import { useAuth } from '../auth';
 
-type Volunteer = { id: string; firstName: string; lastName: string };
+type Volunteer = { id: string; name: string; email: string };
 type Shift = {
   id: string;
   date: string; // ISO date, e.g. "2026-08-24"
@@ -12,10 +13,10 @@ type Shift = {
   volunteers: Volunteer[];
 };
 
-// Shifts with their volunteers' names; snake_case columns aliased to camelCase.
+// Shifts with their assigned volunteers from the roster.
 const SHIFTS_SELECT = `
   id, date, slot,
-  volunteers:parents!shift_volunteers ( id, firstName:first_name, lastName:last_name )
+  volunteers:volunteers!shift_volunteers ( id, name, email )
 `;
 
 const SLOT_END: Record<Shift['slot'], string> = { '11:30': '12:30', '12:30': '13:30' };
@@ -29,7 +30,7 @@ function startOfWeek(d: Date): Date {
 
 function shiftToEvent(shift: Shift): CalendarEvent {
   const names = shift.volunteers
-    .map((v) => `${v.firstName} ${v.lastName}`)
+    .map((v) => v.name)
     .sort((a, b) => a.localeCompare(b))
     .join(', ');
   return {
@@ -76,18 +77,29 @@ function useShifts(): ShiftsResult {
 }
 
 export function CalendarPage() {
+  const { user } = useAuth();
+  const myEmail = (user?.email ?? '').toLowerCase();
   const [viewStart, setViewStart] = useState<Date>(() => startOfWeek(new Date()));
   const { isLoading, error, shifts } = useShifts();
 
   const events = useMemo(() => shifts.map(shiftToEvent), [shifts]);
+  const myShiftIds = useMemo(
+    () =>
+      new Set(
+        shifts
+          .filter((s) => s.volunteers.some((v) => v.email.toLowerCase() === myEmail))
+          .map((s) => s.id),
+      ),
+    [shifts, myEmail],
+  );
 
   return (
     <PageShell width="xl">
       <Stack gap="xl">
         <PageHeader
-          eyebrow="Planning"
-          title="My calendar"
-          description="Green Team lunch shifts — two one-hour shifts each school day."
+          eyebrow="Green Team"
+          title="Shift calendar"
+          description="Lunch shifts Monday–Thursday. Shifts you're on are highlighted."
         />
 
         {isLoading ? (
@@ -102,7 +114,7 @@ export function CalendarPage() {
             viewStart={viewStart}
             onViewStartChange={setViewStart}
             defaultZoom="3"
-            getEventTone={() => 'success'}
+            getEventTone={(event) => (myShiftIds.has(String(event.id)) ? 'primary' : 'success')}
           />
         )}
       </Stack>

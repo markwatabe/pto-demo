@@ -13,8 +13,9 @@ import { useAuth } from '../auth';
 import { supabase } from '../supabase';
 
 const NAV_ITEMS = [
+  { to: '/calendar', label: 'Shift calendar' },
+  { to: '/availability', label: 'My availability' },
   { to: '/directory', label: 'Directory' },
-  { to: '/calendar', label: 'My calendar' },
   { to: '/forms', label: 'Forms' },
   { to: '/our-pto', label: 'Our PTO' },
 ] as const;

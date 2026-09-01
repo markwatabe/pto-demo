@@ -5,6 +5,7 @@ import { AppLayout } from './components/AppLayout';
 import { LoginPage } from './pages/Login';
 import { DirectoryPage } from './pages/Directory';
 import { CalendarPage } from './pages/Calendar';
+import { AvailabilityPage } from './pages/Availability';
 import { FormsPage } from './pages/Forms';
 import { OurPtoPage } from './pages/OurPto';
 import { AdminPage } from './pages/Admin';
@@ -38,18 +39,19 @@ export function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<Navigate to="/directory" replace />} />
+      <Route path="/login" element={<Navigate to="/calendar" replace />} />
       <Route element={<AppLayout isAdmin={isAdmin} />}>
         <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/availability" element={<AvailabilityPage />} />
         <Route path="/forms" element={<FormsPage />} />
         <Route path="/our-pto" element={<OurPtoPage />} />
         <Route
           path="/admin"
-          element={isAdmin ? <AdminPage /> : <Navigate to="/directory" replace />}
+          element={isAdmin ? <AdminPage /> : <Navigate to="/calendar" replace />}
         />
-        <Route path="/" element={<Navigate to="/directory" replace />} />
-        <Route path="*" element={<Navigate to="/directory" replace />} />
+        <Route path="/" element={<Navigate to="/calendar" replace />} />
+        <Route path="*" element={<Navigate to="/calendar" replace />} />
       </Route>
     </Routes>
   );
