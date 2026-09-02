@@ -9,19 +9,19 @@ importers:
   .:
     dependencies:
       '@apygee/atoms':
-        specifier: workspace:*
+        specifier: ^0.9.0
         version: link:../components/packages/atoms
       '@apygee/calendar':
-        specifier: workspace:*
+        specifier: ^0.2.10
         version: link:../components/packages/calendar
       '@apygee/core':
-        specifier: workspace:*
+        specifier: ^0.5.4
         version: link:../components/packages/core
       '@apygee/data-table':
-        specifier: workspace:*
+        specifier: ^0.1.9
         version: link:../components/packages/data-table
       '@apygee/types':
-        specifier: workspace:*
+        specifier: ^0.9.0
         version: link:../components/packages/types
       '@supabase/supabase-js':
         specifier: ^2.112.3

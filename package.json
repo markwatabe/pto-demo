@@ -13,11 +13,11 @@
     "import:volunteers": "tsx scripts/import-volunteers.ts"
   },
   "dependencies": {
-    "@apygee/atoms": "workspace:*",
-    "@apygee/calendar": "workspace:*",
-    "@apygee/core": "workspace:*",
-    "@apygee/data-table": "workspace:*",
-    "@apygee/types": "workspace:*",
+    "@apygee/atoms": "^0.9.0",
+    "@apygee/calendar": "^0.2.10",
+    "@apygee/core": "^0.5.4",
+    "@apygee/data-table": "^0.1.9",
+    "@apygee/types": "^0.9.0",
     "@supabase/supabase-js": "^2.112.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

@@ -1,3 +1,7 @@
+# Local dev links the sibling @apygee checkout when versions match; CI/Render
+# clones (where ../components doesn't exist) install the published packages.
+linkWorkspacePackages: true
+
 packages:
   - '.'
   # Consume the @apygee component library from the sibling monorepo as
