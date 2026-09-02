@@ -1,16 +1,8 @@
-# Local dev links the sibling @apygee checkout when versions match; CI/Render
-# clones (where ../components doesn't exist) install the published packages.
-linkWorkspacePackages: true
-
+# @apygee packages install from npm (published in lockstep with the sibling
+# ../components repo). For live local development against that checkout, use
+# `pnpm link ../components/packages/<name>` ad hoc.
 packages:
   - '.'
-  # Consume the @apygee component library from the sibling monorepo as
-  # workspace packages. Their dist/ output is already built.
-  - '../components/packages/atoms'
-  - '../components/packages/core'
-  - '../components/packages/types'
-  - '../components/packages/data-table'
-  - '../components/packages/calendar'
 
 # pnpm blocks install scripts by default. esbuild (a Vite dependency)
 # postinstalls its native binary; allow only that.
