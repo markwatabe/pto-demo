@@ -115,17 +115,8 @@ function matches(g: GoogleEvent, d: DesiredEvent): boolean {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (req.method !== 'POST') return json(405, { error: 'Method not allowed.' });
   try {
-    const saEmail = Deno.env.get('GOOGLE_SA_EMAIL');
-    const saKey = Deno.env.get('GOOGLE_SA_PRIVATE_KEY');
-    const calendarId = Deno.env.get('GOOGLE_CALENDAR_ID');
-    if (!saEmail || !saKey || !calendarId) {
-      return json(500, {
-        error:
-          'Missing GOOGLE_SA_EMAIL / GOOGLE_SA_PRIVATE_KEY / GOOGLE_CALENDAR_ID function secrets.',
-      });
-    }
-
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -145,6 +136,16 @@ Deno.serve(async (req) => {
       .eq('user_id', userData.user.id)
       .maybeSingle();
     if (!adminRow) return json(403, { error: 'Admins only.' });
+
+    const saEmail = Deno.env.get('GOOGLE_SA_EMAIL');
+    const saKey = Deno.env.get('GOOGLE_SA_PRIVATE_KEY');
+    const calendarId = Deno.env.get('GOOGLE_CALENDAR_ID');
+    if (!saEmail || !saKey || !calendarId) {
+      return json(500, {
+        error:
+          'Missing GOOGLE_SA_EMAIL / GOOGLE_SA_PRIVATE_KEY / GOOGLE_CALENDAR_ID function secrets.',
+      });
+    }
 
     // Load the schedule.
     const { data: year } = await db.from('school_year').select('starts_on, ends_on').maybeSingle();
@@ -193,6 +194,9 @@ Deno.serve(async (req) => {
     const gHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     const existing = new Map<string, GoogleEvent>();
+    // Duplicate managed events (e.g. two simultaneous syncs racing a create)
+    // are collected and removed so re-runs stay a true no-op.
+    const duplicates: GoogleEvent[] = [];
     let pageToken: string | undefined;
     do {
       const params = new URLSearchParams({
@@ -206,7 +210,9 @@ Deno.serve(async (req) => {
       const page = await res.json();
       for (const ev of (page.items ?? []) as GoogleEvent[]) {
         const key = ev.extendedProperties?.private?.ptoKey;
-        if (key) existing.set(key, ev);
+        if (!key) continue;
+        if (existing.has(key)) duplicates.push(ev);
+        else existing.set(key, ev);
       }
       pageToken = page.nextPageToken;
     } while (pageToken);
@@ -230,6 +236,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify(eventBody(d)),
         });
         if (!res.ok) throw new Error(`Google create failed (${res.status}): ${await res.text()}`);
+        await res.body?.cancel();
         created++;
       } else if (!matches(g, d)) {
         const res = await fetch(`${base}/${g.id}`, {
@@ -238,16 +245,22 @@ Deno.serve(async (req) => {
           body: JSON.stringify(eventBody(d)),
         });
         if (!res.ok) throw new Error(`Google update failed (${res.status}): ${await res.text()}`);
+        await res.body?.cancel();
         updated++;
       }
     }
-    for (const [key, g] of existing) {
-      if (desired.has(key)) continue;
+    const removeEvent = async (g: GoogleEvent) => {
       const res = await fetch(`${base}/${g.id}`, { method: 'DELETE', headers: gHeaders });
       if (!res.ok && res.status !== 410) {
         throw new Error(`Google delete failed (${res.status}): ${await res.text()}`);
       }
-      deleted++;
+      if (res.ok) deleted++;
+    };
+    for (const [key, g] of existing) {
+      if (!desired.has(key)) await removeEvent(g);
+    }
+    for (const g of duplicates) {
+      await removeEvent(g);
     }
 
     return json(200, { created, updated, deleted, total: desired.size });
