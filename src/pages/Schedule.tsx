@@ -83,6 +83,8 @@ export function SchedulePage() {
   const [generating, setGenerating] = useState(false);
   const [summary, setSummary] = useState<DraftPlan['summary'] | null>(null);
 
+  const [syncing, setSyncing] = useState(false);
+
   // Day editor
   const [dayDate, setDayDate] = useState('');
   const [dayShifts, setDayShifts] = useState<DayShift[] | null>(null);
@@ -283,6 +285,29 @@ export function SchedulePage() {
     }
     setSummary(plan.summary);
     if (dayShifts && DATE_RE.test(dayDate)) await loadDay();
+  }
+
+  async function syncGoogleCalendar() {
+    setSyncing(true);
+    setError(null);
+    setNotice(null);
+    const { data, error: fnError } = await supabase.functions.invoke('sync-google-calendar');
+    setSyncing(false);
+    if (fnError) {
+      // FunctionsHttpError carries the response; surface the function's message.
+      let message = fnError.message;
+      try {
+        const ctx = (fnError as { context?: Response }).context;
+        if (ctx) message = (await ctx.json()).error ?? message;
+      } catch {
+        // keep the generic message
+      }
+      setError(message);
+      return;
+    }
+    setNotice(
+      `Google Calendar synced: ${data.created} created, ${data.updated} updated, ${data.deleted} removed.`,
+    );
   }
 
   const loadDay = useCallback(async () => {
@@ -526,6 +551,19 @@ export function SchedulePage() {
                     )}
                   </Stack>
                 ) : null}
+              </Stack>
+            </Card>
+
+            <Card padding="lg" surface="raised">
+              <Stack gap="md">
+                <SectionTitle>Google Calendar</SectionTitle>
+                <Caption>
+                  Pushes the school year's shifts and no-school days to the PTO's shared Google
+                  Calendar. Only events managed by this app are touched.
+                </Caption>
+                <Button onClick={syncGoogleCalendar} disabled={syncing}>
+                  {syncing ? 'Syncing…' : 'Sync Google Calendar'}
+                </Button>
               </Stack>
             </Card>
 
