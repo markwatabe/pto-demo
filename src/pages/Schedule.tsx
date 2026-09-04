@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import {
   Alert,
   Body,
@@ -14,6 +14,7 @@ import {
   Stack,
   Strong,
   TextField,
+  Tooltip,
 } from '@apygee/atoms';
 import { supabase } from '../supabase';
 import {
@@ -41,8 +42,15 @@ type DayAssignment = {
   volunteer: { id: string; name: string };
 };
 type DayShift = ShiftRow & { assignments: DayAssignment[] };
+// Roster rows with the extra columns the hover tooltip shows.
+type RosterDetail = RosterVolunteer & {
+  grades: string | null;
+  frequency_note: string | null;
+  notes: string | null;
+};
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const WEEKDAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu'];
 const FREQ_LABEL: Record<Frequency, string> = {
   monthly: '1×/month',
   biweekly: '2×/month',
@@ -84,7 +92,7 @@ export function SchedulePage() {
   // Day editor
   const [dayDate, setDayDate] = useState('');
   const [dayShifts, setDayShifts] = useState<DayShift[] | null>(null);
-  const [roster, setRoster] = useState<RosterVolunteer[]>([]);
+  const [roster, setRoster] = useState<RosterDetail[]>([]);
   const [dayAvailability, setDayAvailability] = useState<AvailabilityRow[]>([]);
   const [dayBusy, setDayBusy] = useState<string | null>(null);
 
@@ -312,17 +320,18 @@ export function SchedulePage() {
       return;
     }
     setError(null);
-    const weekday = weekdayOf(dayDate);
+    // Full-week availability: candidate filtering uses the day's weekday,
+    // the hover tooltip shows the whole week.
     const [shiftsRes, rosterRes, availRes] = await Promise.all([
       supabase
         .from('green_team_shifts')
         .select('id, date, slot, assignments:shift_volunteers ( volunteer_id, status, volunteer:volunteers ( id, name ) )')
         .eq('date', dayDate),
-      supabase.from('volunteers').select('id, name, frequency, backfill').order('name'),
       supabase
-        .from('availability')
-        .select('volunteer_id, weekday, slot')
-        .eq('weekday', weekday),
+        .from('volunteers')
+        .select('id, name, frequency, backfill, grades, frequency_note, notes')
+        .order('name'),
+      supabase.from('availability').select('volunteer_id, weekday, slot'),
     ]);
     const loadError = shiftsRes.error ?? rosterRes.error ?? availRes.error;
     if (loadError) {
@@ -333,7 +342,7 @@ export function SchedulePage() {
       a.slot.localeCompare(b.slot),
     );
     setDayShifts(shifts);
-    setRoster((rosterRes.data ?? []) as RosterVolunteer[]);
+    setRoster((rosterRes.data ?? []) as RosterDetail[]);
     setDayAvailability((availRes.data ?? []) as AvailabilityRow[]);
   }, [dayDate]);
 
@@ -386,14 +395,17 @@ export function SchedulePage() {
     await loadDay();
   }
 
-  function candidatesFor(shift: DayShift): { available: RosterVolunteer[]; backfill: RosterVolunteer[]; others: RosterVolunteer[] } {
+  function candidatesFor(shift: DayShift): { available: RosterDetail[]; backfill: RosterDetail[]; others: RosterDetail[] } {
     const assigned = new Set(shift.assignments.map((a) => a.volunteer_id));
+    const weekday = weekdayOf(shift.date);
     const availableIds = new Set(
-      dayAvailability.filter((a) => a.slot === shift.slot).map((a) => a.volunteer_id),
+      dayAvailability
+        .filter((a) => a.weekday === weekday && a.slot === shift.slot)
+        .map((a) => a.volunteer_id),
     );
-    const available: RosterVolunteer[] = [];
-    const backfill: RosterVolunteer[] = [];
-    const others: RosterVolunteer[] = [];
+    const available: RosterDetail[] = [];
+    const backfill: RosterDetail[] = [];
+    const others: RosterDetail[] = [];
     for (const v of roster) {
       if (assigned.has(v.id)) continue;
       if (availableIds.has(v.id)) available.push(v);
@@ -401,6 +413,56 @@ export function SchedulePage() {
       else others.push(v);
     }
     return { available, backfill, others };
+  }
+
+  // One line each: availability ("Mon E/L · Thu E"), frequency, grades, notes.
+  function volunteerTooltip(v: RosterDetail): string[] {
+    const byDay = new Map<number, Set<string>>();
+    for (const a of dayAvailability) {
+      if (a.volunteer_id !== v.id) continue;
+      let slots = byDay.get(a.weekday);
+      if (!slots) {
+        slots = new Set();
+        byDay.set(a.weekday, slots);
+      }
+      slots.add(a.slot);
+    }
+    const avail = [1, 2, 3, 4]
+      .filter((d) => byDay.has(d))
+      .map((d) => {
+        const slots = byDay.get(d)!;
+        const label = slots.has('early') && slots.has('late') ? 'E/L' : slots.has('early') ? 'E' : 'L';
+        return `${WEEKDAY_SHORT[d]} ${label}`;
+      })
+      .join(' · ');
+    const freq =
+      FREQ_LABEL[v.frequency] +
+      (v.frequency === 'custom' && v.frequency_note ? ` (${v.frequency_note})` : '');
+    return [
+      `Avail: ${avail || 'none listed'}`,
+      `Freq: ${freq}${v.backfill ? ' · backfill' : ''}`,
+      v.grades ? `Grades: ${v.grades}` : '',
+      v.notes ? `Notes: ${v.notes}` : '',
+    ].filter(Boolean);
+  }
+
+  // Tooltip-wrapped anchor for a volunteer; plain anchor if unknown.
+  function withVolunteerTooltip(id: string, anchor: ReactElement): ReactElement {
+    const v = roster.find((r) => r.id === id);
+    if (!v) return anchor;
+    return (
+      <Tooltip
+        label={
+          <>
+            {volunteerTooltip(v).map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+          </>
+        }
+      >
+        {anchor}
+      </Tooltip>
+    );
   }
 
   return (
@@ -597,7 +659,10 @@ export function SchedulePage() {
                             <Stack gap="xs">
                               {shift.assignments.map((a) => (
                                 <Inline key={a.volunteer_id} gap="sm" align="center" wrap>
-                                  <Body>{a.volunteer.name}</Body>
+                                  {withVolunteerTooltip(
+                                    a.volunteer_id,
+                                    <Body>{a.volunteer.name}</Body>,
+                                  )}
                                   {isPast ? (
                                     <>
                                       <Button
@@ -642,16 +707,26 @@ export function SchedulePage() {
                                 <Caption>{label}</Caption>
                                 <Inline gap="sm" wrap>
                                   {group.map((v) => (
-                                    <Button
+                                    <Tooltip
                                       key={v.id}
-                                      variant="ghost"
-                                      onClick={() => addToShift(shift, v.id)}
-                                      disabled={dayBusy === `${shift.id}:${v.id}`}
+                                      label={
+                                        <>
+                                          {volunteerTooltip(v).map((line) => (
+                                            <div key={line}>{line}</div>
+                                          ))}
+                                        </>
+                                      }
                                     >
-                                      {dayBusy === `${shift.id}:${v.id}`
-                                        ? 'Adding…'
-                                        : `+ ${v.name} · ${FREQ_LABEL[v.frequency]}`}
-                                    </Button>
+                                      <Button
+                                        variant="ghost"
+                                        onClick={() => addToShift(shift, v.id)}
+                                        disabled={dayBusy === `${shift.id}:${v.id}`}
+                                      >
+                                        {dayBusy === `${shift.id}:${v.id}`
+                                          ? 'Adding…'
+                                          : `+ ${v.name} · ${FREQ_LABEL[v.frequency]}`}
+                                      </Button>
+                                    </Tooltip>
                                   ))}
                                 </Inline>
                               </Stack>
