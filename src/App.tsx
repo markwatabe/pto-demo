@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router';
+import { Navigate, Route, Routes, useLocation } from 'react-router';
 import { PageShell, Spinner, Stack } from '@apygee/atoms';
 import { useAccess } from './access';
 import { AppLayout } from './components/AppLayout';
@@ -13,9 +13,16 @@ import { SchedulePage } from './pages/Schedule';
 import { PlanPage } from './pages/Plan';
 import { VolunteersPage } from './pages/Volunteers';
 import { WaitingPage } from './pages/Waiting';
+import { FiskeSchedulePage } from './pages/FiskeSchedule';
 
 export function App() {
   const { isLoading, user, status, isAdmin, refresh } = useAccess();
+  const { pathname } = useLocation();
+
+  // Public, login-free view — rendered before any auth gating.
+  if (pathname === '/fiske-schedule') {
+    return <FiskeSchedulePage />;
+  }
 
   if (isLoading) {
     return (
