@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Body,
@@ -19,6 +19,7 @@ import {
   buildDraft,
   isoDate,
   SLOT_LABEL,
+  SLOTS,
   toLocalDate,
   TRAILING_WINDOW_DAYS,
   type AssignmentRow,
@@ -27,9 +28,13 @@ import {
   type Frequency,
   type RosterVolunteer,
   type ShiftRow,
+  type Slot,
 } from '../schedule';
 
 type SchoolYear = { starts_on: string; ends_on: string };
+type MonthShift = ShiftRow & {
+  assignments: { volunteer: { id: string; name: string } }[];
+};
 
 const FREQ_LABEL: Record<Frequency, string> = {
   monthly: '1×/month',
@@ -77,7 +82,18 @@ type Preview = {
   plan: DraftPlan;
   // volunteer id -> new assignments this preview would add
   loads: Array<{ volunteer: RosterVolunteer; added: number }>;
+  // every drafted (not yet saved) pick, resolved to date/slot/name
+  added: Array<{ date: string; slot: Slot; name: string }>;
 };
+
+// "2026-09-14" -> "Mon, Sep 14"
+function dayLabel(iso: string): string {
+  return toLocalDate(iso).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
 async function chunkedInsert(
   table: string,
@@ -98,6 +114,23 @@ export function PlanPage() {
   const [month, setMonth] = useState('');
   const [busy, setBusy] = useState<'preview' | 'apply' | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [monthShifts, setMonthShifts] = useState<MonthShift[]>([]);
+
+  // The month's saved schedule (shifts with assigned volunteer names).
+  const loadMonth = useCallback(async (ym: string) => {
+    const range = monthRange(ym);
+    const { data, error: shiftsError } = await supabase
+      .from('green_team_shifts')
+      .select('id, date, slot, assignments:shift_volunteers ( volunteer:volunteers ( id, name ) )')
+      .gte('date', range.from)
+      .lte('date', range.to);
+    if (shiftsError) setError(shiftsError.message);
+    else setMonthShifts((data ?? []) as unknown as MonthShift[]);
+  }, []);
+
+  useEffect(() => {
+    if (month) loadMonth(month);
+  }, [month, loadMonth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -214,8 +247,19 @@ export function PlanPage() {
       .filter((l) => l.added > 0)
       .sort((a, b) => b.added - a.added || a.volunteer.name.localeCompare(b.volunteer.name));
 
+    const shiftById = new Map(
+      [...existingShifts, ...plan.shiftInserts].map((s) => [s.id, s]),
+    );
+    const nameById = new Map(volunteers.map((v) => [v.id, v.name]));
+    const added = plan.assignmentInserts.flatMap((a) => {
+      const shift = shiftById.get(a.shift_id);
+      return shift
+        ? [{ date: shift.date, slot: shift.slot, name: nameById.get(a.volunteer_id) ?? '?' }]
+        : [];
+    });
+
     setBusy(null);
-    setPreview({ month, plan, loads });
+    setPreview({ month, plan, loads, added });
   }
 
   async function apply() {
@@ -239,9 +283,36 @@ export function PlanPage() {
       `Applied ${monthLabel(preview.month)}: ${preview.plan.shiftInserts.length} shifts, ${preview.plan.assignmentInserts.length} assignments saved.`,
     );
     setPreview(null);
+    await loadMonth(preview.month);
   }
 
   const summary = preview?.plan.summary ?? null;
+
+  // date -> per-slot saved and drafted names, merged for the schedule list.
+  const scheduleDays = useMemo(() => {
+    const byDate = new Map<string, Record<Slot, { saved: string[]; drafted: string[] }>>();
+    const cell = (date: string, slot: Slot) => {
+      let day = byDate.get(date);
+      if (!day) {
+        day = { early: { saved: [], drafted: [] }, late: { saved: [], drafted: [] } };
+        byDate.set(date, day);
+      }
+      return day[slot];
+    };
+    for (const s of monthShifts) {
+      const c = cell(s.date, s.slot);
+      for (const a of s.assignments) c.saved.push(a.volunteer.name);
+    }
+    if (preview?.month === month) {
+      for (const a of preview.added) cell(a.date, a.slot).drafted.push(a.name);
+    }
+    for (const day of byDate.values()) {
+      for (const slot of SLOTS) day[slot].saved.sort((x, y) => x.localeCompare(y));
+    }
+    return [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [monthShifts, preview, month]);
+
+  const hasDraft = Boolean(preview && preview.month === month && preview.added.length > 0);
 
   return (
     <PageShell width="lg">
@@ -284,6 +355,36 @@ export function PlanPage() {
                     </Button>
                   ) : null}
                 </Inline>
+              </Stack>
+            </Card>
+
+            <Card padding="lg" surface="raised">
+              <Stack gap="md">
+                <SectionTitle>{`Schedule for ${monthLabel(month)}`}</SectionTitle>
+                {hasDraft ? (
+                  <Caption>Names marked * are drafted — nothing is saved until you press Apply.</Caption>
+                ) : null}
+                {scheduleDays.length === 0 ? (
+                  <Body>No shifts scheduled this month yet. Run Preview to draft one.</Body>
+                ) : (
+                  <Stack gap="md">
+                    {scheduleDays.map(([date, day]) => (
+                      <Stack key={date} gap="xs">
+                        <Strong>{dayLabel(date)}</Strong>
+                        {SLOTS.map((slot) => {
+                          const { saved, drafted } = day[slot];
+                          const names = [...saved, ...drafted.map((n) => `${n} *`)];
+                          return (
+                            <Inline key={slot} gap="sm" wrap>
+                              <Caption>{SLOT_LABEL[slot]}</Caption>
+                              <Body>{names.length ? names.join(', ') : '—'}</Body>
+                            </Inline>
+                          );
+                        })}
+                      </Stack>
+                    ))}
+                  </Stack>
+                )}
               </Stack>
             </Card>
 
