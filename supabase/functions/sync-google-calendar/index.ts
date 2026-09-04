@@ -39,7 +39,14 @@ function b64url(data: ArrayBuffer | string): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function googleAccessToken(saEmail: string, pem: string): Promise<string> {
+// With domain-wide delegation, `impersonate` names the Workspace user the
+// service account acts as (required when org policy blocks calendar sharing
+// to external addresses); omitted, the SA acts as itself via calendar sharing.
+async function googleAccessToken(
+  saEmail: string,
+  pem: string,
+  impersonate?: string,
+): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claims = b64url(
@@ -49,6 +56,7 @@ async function googleAccessToken(saEmail: string, pem: string): Promise<string> 
       aud: 'https://oauth2.googleapis.com/token',
       iat: now,
       exp: now + 3600,
+      ...(impersonate ? { sub: impersonate } : {}),
     }),
   );
   const key = await crypto.subtle.importKey(
@@ -189,7 +197,11 @@ Deno.serve(async (req) => {
 
     // Google: token, then list ALL events we manage (no time bounds, so a
     // shrunk school year still gets its stale events cleaned up).
-    const token = await googleAccessToken(saEmail, saKey);
+    const token = await googleAccessToken(
+      saEmail,
+      saKey,
+      Deno.env.get('GOOGLE_IMPERSONATE_EMAIL') || undefined,
+    );
     const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
     const gHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
