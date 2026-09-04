@@ -1,5 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Body, Caption, PageHeader, PageShell, Spinner, Stack, Strong } from '@apygee/atoms';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Body,
+  Button,
+  Caption,
+  Inline,
+  PageHeader,
+  PageShell,
+  Spinner,
+  Stack,
+  Strong,
+} from '@apygee/atoms';
 import { DataTable, type DataTableColumnDef } from '@apygee/data-table';
 import { supabase } from '../supabase';
 
@@ -122,28 +133,53 @@ export function VolunteersPage() {
   const [filter, setFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<{ message: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
 
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([
+  const load = useCallback(async () => {
+    const [volsRes, availRes] = await Promise.all([
       supabase
         .from('volunteers')
         .select('id, email, name, veteran, grades, frequency, frequency_note, cori, backfill, notes')
         .order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
-    ]).then(([volsRes, availRes]) => {
-      if (cancelled) return;
-      setError(volsRes.error ?? availRes.error);
-      setVolunteers((volsRes.data ?? []) as Volunteer[]);
-      setAvailability((availRes.data ?? []) as AvailabilityRow[]);
-      setIsLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
+    ]);
+    setError(volsRes.error ?? availRes.error);
+    setVolunteers((volsRes.data ?? []) as Volunteer[]);
+    setAvailability((availRes.data ?? []) as AvailabilityRow[]);
+    setIsLoading(false);
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function resync() {
+    setSyncing(true);
+    setError(null);
+    setNotice(null);
+    const { data, error: fnError } = await supabase.functions.invoke('sync-volunteers');
+    if (fnError) {
+      // FunctionsHttpError carries the response; surface the function's message.
+      let message = fnError.message;
+      try {
+        const ctx = (fnError as { context?: Response }).context;
+        if (ctx) message = (await ctx.json()).error ?? message;
+      } catch {
+        // keep the generic message
+      }
+      setSyncing(false);
+      setError({ message });
+      return;
+    }
+    await load();
+    setSyncing(false);
+    setNotice(
+      `Spreadsheet synced: ${data.imported} of ${data.responses} responses imported${data.skipped ? `, ${data.skipped} skipped (missing email or name)` : ''}.`,
+    );
+  }
 
   const rows = useMemo<Row[]>(() => {
     const byVolunteer = new Map<string, AvailabilityRow[]>();
@@ -174,8 +210,17 @@ export function VolunteersPage() {
         <PageHeader
           eyebrow="Green Team · Admin"
           title="Volunteers"
-          description="The roster from the sign-up form. Refresh with `pnpm fetch:volunteers` after new responses."
+          description="The roster from the sign-up form. Resync pulls the latest responses from the spreadsheet."
         />
+
+        <Inline gap="sm" align="center" wrap>
+          <Button onClick={resync} disabled={syncing}>
+            {syncing ? 'Syncing…' : 'Resync from spreadsheet'}
+          </Button>
+          <Caption>Updates volunteers and their availability; in-app sign-ups not on the form are untouched.</Caption>
+        </Inline>
+
+        {notice ? <Alert tone="info" title="Synced" description={notice} /> : null}
 
         {isLoading ? (
           <Stack gap="md" align="center">
