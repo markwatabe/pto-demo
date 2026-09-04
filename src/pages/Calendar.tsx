@@ -4,12 +4,13 @@ import { Calendar } from '@apygee/calendar';
 import type { CalendarEvent } from '@apygee/types';
 import { supabase } from '../supabase';
 import { useAuth } from '../auth';
+import { SLOT_TIMES, type Slot } from '../schedule';
 
 type Volunteer = { id: string; name: string; email: string };
 type Shift = {
   id: string;
   date: string; // ISO date, e.g. "2026-08-24"
-  slot: '11:30' | '12:30';
+  slot: Slot;
   volunteers: Volunteer[];
 };
 
@@ -18,8 +19,6 @@ const SHIFTS_SELECT = `
   id, date, slot,
   volunteers:volunteers!shift_volunteers ( id, name, email )
 `;
-
-const SLOT_END: Record<Shift['slot'], string> = { '11:30': '12:30', '12:30': '13:30' };
 
 // Sunday of the week containing d, at local midnight.
 function startOfWeek(d: Date): Date {
@@ -33,12 +32,13 @@ function shiftToEvent(shift: Shift): CalendarEvent {
     .map((v) => v.name)
     .sort((a, b) => a.localeCompare(b))
     .join(', ');
+  const { start, end } = SLOT_TIMES[shift.slot];
   return {
     id: shift.id,
     title: `Green Team: ${names || 'unfilled'}`,
-    description: `Lunch shift ${shift.slot}–${SLOT_END[shift.slot]} · ${names || 'no volunteers yet'}`,
-    startsAt: `${shift.date}T${shift.slot}:00`,
-    endsAt: `${shift.date}T${SLOT_END[shift.slot]}:00`,
+    description: `Lunch shift ${start}–${end} · ${names || 'no volunteers yet'}`,
+    startsAt: `${shift.date}T${start}:00`,
+    endsAt: `${shift.date}T${end}:00`,
   };
 }
 

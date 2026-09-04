@@ -17,8 +17,12 @@ const json = (status: number, body: unknown) =>
 
 const TZ = 'America/New_York';
 const MANAGED = 'pto-demo';
-const SLOT_END: Record<string, string> = { '11:30': '12:30', '12:30': '13:30' };
-const SLOT_LABEL: Record<string, string> = { '11:30': 'Early', '12:30': 'Late' };
+// Mirrors SLOT_TIMES in src/schedule.ts — keep the two in sync.
+const SLOT_TIMES: Record<string, { start: string; end: string }> = {
+  early: { start: '11:05', end: '12:15' },
+  late: { start: '12:20', end: '13:30' },
+};
+const SLOT_LABEL: Record<string, string> = { early: 'Early', late: 'Late' };
 
 function pemToArrayBuffer(pem: string): ArrayBuffer {
   const body = pem
@@ -111,7 +115,7 @@ function nextDay(iso: string): string {
 }
 
 // Google echoes dateTime in the event's zone with an offset
-// ("2026-09-08T11:30:00-04:00"); our naive local string is its prefix.
+// ("2026-09-08T11:05:00-04:00"); our naive local string is its prefix.
 function matches(g: GoogleEvent, d: DesiredEvent): boolean {
   if ((g.summary ?? '') !== d.summary) return false;
   if (d.start.date) return g.start?.date === d.start.date && g.end?.date === d.end.date;
@@ -178,11 +182,12 @@ Deno.serve(async (req) => {
         .map((v) => v.name)
         .sort((a, b) => a.localeCompare(b))
         .join(', ');
+      const times = SLOT_TIMES[shift.slot];
       desired.set(shift.id, {
         ptoKey: shift.id,
         summary: `Green Team: ${names || 'unfilled'} (${SLOT_LABEL[shift.slot]})`,
-        start: { dateTime: `${shift.date}T${shift.slot}:00`, timeZone: TZ },
-        end: { dateTime: `${shift.date}T${SLOT_END[shift.slot]}:00`, timeZone: TZ },
+        start: { dateTime: `${shift.date}T${times.start}:00`, timeZone: TZ },
+        end: { dateTime: `${shift.date}T${times.end}:00`, timeZone: TZ },
       });
     }
     for (const c of (closuresRes.data ?? []) as { date: string; reason: string | null }[]) {

@@ -35,17 +35,17 @@ function headerFor(rows: Row[], marker: string): string {
   return key;
 }
 
-// "Early Shift" -> 11:30, "Late Shift" -> 12:30, "Full Shift" -> both.
+// "Early Shift" -> early, "Late Shift" -> late, "Full Shift" -> both.
 // Cells can list several, comma-separated; "N/A" or empty means none.
 function slotsFor(cell: string | undefined): string[] {
   const text = (cell ?? '').trim();
   if (!text) return [];
   const slots = new Set<string>();
-  if (text.includes('Early Shift')) slots.add('11:30');
-  if (text.includes('Late Shift')) slots.add('12:30');
+  if (text.includes('Early Shift')) slots.add('early');
+  if (text.includes('Late Shift')) slots.add('late');
   if (text.includes('Full Shift')) {
-    slots.add('11:30');
-    slots.add('12:30');
+    slots.add('early');
+    slots.add('late');
   }
   return [...slots];
 }

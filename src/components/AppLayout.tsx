@@ -51,6 +51,9 @@ export function AppLayout({ isAdmin }: { isAdmin: boolean }) {
                   <NavLink to="/admin/schedule" end>
                     Schedule
                   </NavLink>
+                  <NavLink to="/admin/plan" end>
+                    Planner
+                  </NavLink>
                   <NavLink to="/admin/volunteers" end>
                     Volunteers
                   </NavLink>

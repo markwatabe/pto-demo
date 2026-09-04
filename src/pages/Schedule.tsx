@@ -20,6 +20,7 @@ import {
   buildDraft,
   isSchoolDay,
   isoDate,
+  SLOT_LABEL,
   toLocalDate,
   TRAILING_WINDOW_DAYS,
   weekdayOf,
@@ -29,7 +30,6 @@ import {
   type Frequency,
   type RosterVolunteer,
   type ShiftRow,
-  type Slot,
 } from '../schedule';
 
 type Closure = { date: string; reason: string | null };
@@ -43,10 +43,6 @@ type DayAssignment = {
 type DayShift = ShiftRow & { assignments: DayAssignment[] };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const SLOT_LABEL: Record<Slot, string> = {
-  '11:30': 'Early (11:30–12:30)',
-  '12:30': 'Late (12:30–1:30)',
-};
 const FREQ_LABEL: Record<Frequency, string> = {
   monthly: '1×/month',
   biweekly: '2×/month',

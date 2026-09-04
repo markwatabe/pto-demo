@@ -38,8 +38,8 @@ const WEEKDAYS = [
 ] as const;
 
 const SLOTS = [
-  { slot: '11:30', label: 'Early (11:30–12:30)' },
-  { slot: '12:30', label: 'Late (12:30–1:30)' },
+  { slot: 'early', label: 'Early (11:05–12:15)' },
+  { slot: 'late', label: 'Late (12:20–1:30)' },
 ] as const;
 
 const FREQUENCIES: Array<{ value: Frequency; label: string }> = [
@@ -163,8 +163,7 @@ export function AvailabilityPage() {
       setError(clearError.message);
       return;
     }
-    // cellKey(1, '11:30') is "1:11:30" — weekday is everything before the
-    // FIRST colon, slot is everything after it.
+    // cellKey(1, 'early') is "1:early".
     const rows = [...selected].map((key) => {
       const sep = key.indexOf(':');
       return {

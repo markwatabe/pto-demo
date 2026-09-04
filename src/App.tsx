@@ -10,6 +10,7 @@ import { FormsPage } from './pages/Forms';
 import { OurPtoPage } from './pages/OurPto';
 import { AdminPage } from './pages/Admin';
 import { SchedulePage } from './pages/Schedule';
+import { PlanPage } from './pages/Plan';
 import { VolunteersPage } from './pages/Volunteers';
 import { WaitingPage } from './pages/Waiting';
 
@@ -55,6 +56,10 @@ export function App() {
         <Route
           path="/admin/schedule"
           element={isAdmin ? <SchedulePage /> : <Navigate to="/calendar" replace />}
+        />
+        <Route
+          path="/admin/plan"
+          element={isAdmin ? <PlanPage /> : <Navigate to="/calendar" replace />}
         />
         <Route
           path="/admin/volunteers"

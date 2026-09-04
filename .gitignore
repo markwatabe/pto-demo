@@ -11,3 +11,4 @@ dist
 
 # Real volunteer PII — never commit
 volunteers.csv
+deno.lock

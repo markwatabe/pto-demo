@@ -4,8 +4,19 @@
  * persists the returned plan.
  */
 
-export type Slot = '11:30' | '12:30';
-export const SLOTS: readonly Slot[] = ['11:30', '12:30'] as const;
+export type Slot = 'early' | 'late';
+export const SLOTS: readonly Slot[] = ['early', 'late'] as const;
+
+/** The single source of truth for shift clock times (local school time). */
+export const SLOT_TIMES: Record<Slot, { start: string; end: string }> = {
+  early: { start: '11:05', end: '12:15' },
+  late: { start: '12:20', end: '13:30' },
+};
+
+export const SLOT_LABEL: Record<Slot, string> = {
+  early: 'Early (11:05–12:15)',
+  late: 'Late (12:20–1:30)',
+};
 
 export type Frequency = 'monthly' | 'biweekly' | 'custom';
 

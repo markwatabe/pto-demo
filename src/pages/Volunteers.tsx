@@ -27,7 +27,7 @@ const FREQ_LABEL: Record<Volunteer['frequency'], string> = {
   custom: 'custom',
 };
 
-// "Mon E/L · Thu E" — E = early (11:30), L = late (12:30).
+// "Mon E/L · Thu E" — E = early (11:05–12:15), L = late (12:20–1:30).
 function availabilityLabel(rows: AvailabilityRow[]): string {
   const byDay = new Map<number, Set<string>>();
   for (const r of rows) {
@@ -43,7 +43,7 @@ function availabilityLabel(rows: AvailabilityRow[]): string {
     .map((d) => {
       const slots = byDay.get(d)!;
       const label =
-        slots.has('11:30') && slots.has('12:30') ? 'E/L' : slots.has('11:30') ? 'E' : 'L';
+        slots.has('early') && slots.has('late') ? 'E/L' : slots.has('early') ? 'E' : 'L';
       return `${WEEKDAY_SHORT[d]} ${label}`;
     });
   return parts.join(' · ') || '—';

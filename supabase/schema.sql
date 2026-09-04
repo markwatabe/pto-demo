@@ -71,12 +71,13 @@ create table child_past_teachers (
   primary key (child_id, teacher_id)
 );
 
--- Green Team lunch shifts: two one-hour slots per school day, covered by
--- roster volunteers. Admins create/remove shifts and assignments client-side.
+-- Green Team lunch shifts: early (11:05-12:15) and late (12:20-13:30) per
+-- school day, covered by roster volunteers. Clock times live in
+-- src/schedule.ts (SLOT_TIMES). Admins create/remove shifts client-side.
 create table green_team_shifts (
   id uuid primary key default gen_random_uuid(),
   date date not null,
-  slot text not null check (slot in ('11:30', '12:30')),
+  slot text not null check (slot in ('early', 'late')),
   unique (date, slot)
 );
 create index green_team_shifts_date_idx on green_team_shifts (date);
@@ -101,7 +102,7 @@ create table volunteers (
 create table availability (
   volunteer_id uuid not null references volunteers (id) on delete cascade,
   weekday smallint not null check (weekday between 1 and 4),
-  slot text not null check (slot in ('11:30', '12:30')),
+  slot text not null check (slot in ('early', 'late')),
   primary key (volunteer_id, weekday, slot)
 );
 
