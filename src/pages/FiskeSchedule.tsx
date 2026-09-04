@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   Alert,
-  Badge,
   Body,
   Button,
   Caption,
@@ -38,6 +37,31 @@ function readSavedEmail(): string {
 function clock(t: string): string {
   const [h, m] = t.split(':').map(Number);
   return `${h! > 12 ? h! - 12 : h}:${String(m).padStart(2, '0')}`;
+}
+
+// "Mary Jane Watson" -> "Mary Watson" — first and last word only.
+function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  return parts.length > 2 ? `${parts[0]} ${parts[parts.length - 1]}` : name;
+}
+
+// Badge-styled pill (same design-system classes) that can shrink and
+// ellipsize its name — the atoms Badge can't be width-constrained.
+function Pill({ me, name }: { me: boolean; name: string }) {
+  return (
+    <span
+      className={`inline-flex items-center px-sm rounded-full border font-sans text-xs font-medium ${
+        me
+          ? 'bg-primary-soft text-primary border-primary-soft'
+          : 'bg-muted text-default border-default'
+      }`}
+      style={{ height: '1.5rem', minWidth: 0, flex: '0 1 auto' }}
+    >
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {me ? `${shortName(name)} (you)` : shortName(name)}
+      </span>
+    </span>
+  );
 }
 
 // "2026-09-14" -> "Mon, Sep 14"
@@ -159,20 +183,19 @@ export function FiskeSchedulePage() {
                     </Caption>
                   ) : (
                     day.shifts.map((shift) => (
-                      <Stack key={shift.slot} gap="xs">
-                        <Caption>{SLOT_NAME[shift.slot]}</Caption>
+                      <div
+                        key={shift.slot}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
+                      >
+                        <span style={{ flexShrink: 0, width: '2.6rem' }}>
+                          <Caption>{SLOT_NAME[shift.slot]}</Caption>
+                        </span>
                         {shift.people.length === 0 ? (
                           <Body>Nobody yet</Body>
                         ) : (
-                          <Stack gap="xs">
-                            {shift.people.map((p) => (
-                              <Badge key={p.name} tone={p.me ? 'primary' : 'neutral'}>
-                                {p.me ? `${p.name} (you)` : p.name}
-                              </Badge>
-                            ))}
-                          </Stack>
+                          shift.people.map((p) => <Pill key={p.name} me={p.me} name={p.name} />)
                         )}
-                      </Stack>
+                      </div>
                     ))
                   )}
                 </Stack>
