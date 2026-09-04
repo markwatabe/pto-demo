@@ -44,7 +44,6 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 
 type Day = {
   date: string;
-  closure: string | null;
   shifts: { slot: Slot; people: { name: string; me: boolean }[] }[];
 };
 
@@ -273,12 +272,7 @@ export function FiskeSchedulePage() {
               <Card key={day.date} padding="md" surface="raised">
                 <Stack gap="sm">
                   <Strong>{dayLabel(day.date)}</Strong>
-                  {day.closure ? (
-                    <Caption>
-                      {day.closure === 'No school' ? 'No school' : `No school · ${day.closure}`}
-                    </Caption>
-                  ) : (
-                    day.shifts.map((shift) => (
+                  {day.shifts.map((shift) => (
                       <div
                         key={shift.slot}
                         style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
@@ -292,8 +286,7 @@ export function FiskeSchedulePage() {
                           shift.people.map((p) => <Pill key={p.name} me={p.me} name={p.name} />)
                         )}
                       </div>
-                    ))
-                  )}
+                  ))}
                 </Stack>
               </Card>
             ))}

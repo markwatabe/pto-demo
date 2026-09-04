@@ -1,7 +1,8 @@
 // Public (no-login) read of the upcoming Green Team schedule for the
-// /fiske-schedule view. Returns volunteer NAMES only; the caller's email is
-// used server-side to flag their own shifts and is never echoed back, and
-// nobody else's email ever leaves the server.
+// /fiske-schedule view: only days that actually have shifts. Returns
+// volunteer NAMES only; the caller's email is used server-side to flag their
+// own shifts and is never echoed back, and nobody else's email ever leaves
+// the server.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const CORS = {
@@ -40,34 +41,26 @@ Deno.serve(async (req) => {
     const from = today > year.starts_on ? today : year.starts_on;
     if (from > year.ends_on) return json(200, { days: [] });
 
-    const [shiftsRes, closuresRes] = await Promise.all([
-      db
-        .from('green_team_shifts')
-        .select('date, slot, volunteers:volunteers!shift_volunteers ( name, email )')
-        .gte('date', from)
-        .lte('date', year.ends_on)
-        .order('date'),
-      db
-        .from('school_closures')
-        .select('date, reason')
-        .gte('date', from)
-        .lte('date', year.ends_on),
-    ]);
-    if (shiftsRes.error || closuresRes.error) {
-      return json(500, { error: (shiftsRes.error ?? closuresRes.error)!.message });
+    const shiftsRes = await db
+      .from('green_team_shifts')
+      .select('date, slot, volunteers:volunteers!shift_volunteers ( name, email )')
+      .gte('date', from)
+      .lte('date', year.ends_on)
+      .order('date');
+    if (shiftsRes.error) {
+      return json(500, { error: shiftsRes.error.message });
     }
 
     type ShiftRow = { date: string; slot: string; volunteers: { name: string; email: string }[] };
     type Day = {
       date: string;
-      closure: string | null;
       shifts: { slot: string; people: { name: string; me: boolean }[] }[];
     };
     const days = new Map<string, Day>();
     const dayFor = (date: string) => {
       let d = days.get(date);
       if (!d) {
-        d = { date, closure: null, shifts: [] };
+        d = { date, shifts: [] };
         days.set(date, d);
       }
       return d;
@@ -80,9 +73,6 @@ Deno.serve(async (req) => {
           .map((v) => ({ name: v.name, me: v.email.toLowerCase() === me }))
           .sort((a, b) => a.name.localeCompare(b.name)),
       });
-    }
-    for (const c of (closuresRes.data ?? []) as { date: string; reason: string | null }[]) {
-      dayFor(c.date).closure = c.reason ?? 'No school';
     }
 
     const sorted = [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
