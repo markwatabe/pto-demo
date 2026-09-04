@@ -4,6 +4,7 @@
 -- `pnpm seed` afterwards to re-bootstrap the first admin.
 
 drop trigger if exists on_auth_user_created on auth.users;
+drop table if exists push_subscriptions;
 drop table if exists shift_volunteers;
 drop table if exists green_team_shifts;
 drop table if exists availability;
@@ -125,6 +126,19 @@ create table shift_volunteers (
   status text not null default 'scheduled' check (status in ('scheduled', 'attended', 'missed')),
   primary key (shift_id, volunteer_id)
 );
+
+-- Web Push subscriptions for the public /fiske-schedule reminders. Written
+-- and read ONLY by Edge Functions (service role); RLS enabled with no
+-- policies so clients can never touch it.
+create table push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  email text not null check (email = lower(email)),
+  endpoint text not null unique,
+  subscription jsonb not null,
+  created_at timestamptz not null default now()
+);
+create index push_subscriptions_email_idx on push_subscriptions (email);
+alter table push_subscriptions enable row level security;
 
 -- Approval workflow: every auth user gets a profiles row (via trigger),
 -- pending until an admin approves. admins rows mark who can approve.

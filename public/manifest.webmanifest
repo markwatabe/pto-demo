@@ -1,0 +1,14 @@
+{
+  "name": "Fiske Green Team",
+  "short_name": "Green Team",
+  "description": "Upcoming Green Team lunch shifts at Fiske School",
+  "start_url": "/fiske-schedule",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1e7d43",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

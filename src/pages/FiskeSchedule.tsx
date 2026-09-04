@@ -16,6 +16,31 @@ import { supabase } from '../supabase';
 import { SLOT_TIMES, toLocalDate, type Slot } from '../schedule';
 
 const EMAIL_KEY = 'fiske-schedule-email';
+// Public half of the server's VAPID keypair (safe to embed).
+const VAPID_PUBLIC_KEY =
+  'BNhSsFQqkNsMaSRbAEdFSZukzrXkdV1onR3wC609jlPMoXbo0kvIdtXDwJftHOX0BdiN4oURM5SFjQZcirUm6s8';
+
+type PushState = 'unsupported' | 'need-install' | 'idle' | 'busy' | 'enabled' | 'denied';
+
+function pushSupported(): boolean {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+function isIosNotInstalled(): boolean {
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as unknown as { standalone?: boolean }).standalone === true;
+  return ios && !standalone;
+}
+
+function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+  const bytes = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
 
 type Day = {
   date: string;
@@ -81,6 +106,77 @@ export function FiskeSchedulePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState<Day[] | null>(null);
+  const [push, setPush] = useState<PushState>('unsupported');
+
+  // Figure out where this device stands on notifications.
+  useEffect(() => {
+    if (!pushSupported()) {
+      setPush(isIosNotInstalled() ? 'need-install' : 'unsupported');
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      setPush('denied');
+      return;
+    }
+    let cancelled = false;
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => {
+        if (!cancelled) setPush(sub ? 'enabled' : 'idle');
+      })
+      .catch(() => {
+        if (!cancelled) setPush('idle');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function enableReminders() {
+    setPush('busy');
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setPush(permission === 'denied' ? 'denied' : 'idle');
+        return;
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      const { error: fnError } = await supabase.functions.invoke('push-subscribe', {
+        body: { action: 'subscribe', email, subscription: sub.toJSON() },
+      });
+      if (fnError) {
+        setError('Could not save the reminder subscription. Please try again.');
+        setPush('idle');
+        return;
+      }
+      setPush('enabled');
+    } catch {
+      setError('Could not enable reminders on this device.');
+      setPush('idle');
+    }
+  }
+
+  async function disableReminders() {
+    setPush('busy');
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await supabase.functions.invoke('push-subscribe', {
+          body: { action: 'unsubscribe', subscription: sub.toJSON() },
+        });
+        await sub.unsubscribe();
+      }
+      setPush('idle');
+    } catch {
+      setPush('enabled');
+    }
+  }
 
   const load = useCallback(async (forEmail: string) => {
     setIsLoading(true);
@@ -202,6 +298,42 @@ export function FiskeSchedulePage() {
               </Card>
             ))}
           </Stack>
+        )}
+
+        {push === 'unsupported' ? null : (
+          <Card padding="md" surface="raised">
+            <Stack gap="sm">
+              {push === 'need-install' ? (
+                <>
+                  <Strong>Get shift reminders</Strong>
+                  <Caption>
+                    On iPhone: tap the Share button, choose “Add to Home Screen”, then open the
+                    Green Team app from your home screen and enable reminders there.
+                  </Caption>
+                </>
+              ) : push === 'denied' ? (
+                <Caption>
+                  Notifications are blocked for this site. Allow them in your browser settings to
+                  get shift reminders.
+                </Caption>
+              ) : push === 'enabled' ? (
+                <Stack gap="xs">
+                  <Caption>🔔 Shift reminders are on for this device — you’ll get a notification the evening before your shift.</Caption>
+                  <Button variant="ghost" onClick={disableReminders}>
+                    Turn off reminders
+                  </Button>
+                </Stack>
+              ) : (
+                <Stack gap="sm">
+                  <Strong>Get shift reminders</Strong>
+                  <Caption>A notification the evening before each of your shifts.</Caption>
+                  <Button onClick={enableReminders} disabled={push === 'busy'}>
+                    {push === 'busy' ? 'Enabling…' : 'Enable reminders'}
+                  </Button>
+                </Stack>
+              )}
+            </Stack>
+          </Card>
         )}
 
         <Stack gap="xs" align="center">
