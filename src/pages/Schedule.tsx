@@ -32,6 +32,12 @@ import {
   type RosterVolunteer,
   type ShiftRow,
 } from '../schedule';
+import {
+  FREQ_LABEL,
+  ROSTER_DETAIL_SELECT,
+  volunteerTooltipLines,
+  type RosterDetail,
+} from '../volunteerInfo';
 
 type Closure = { date: string; reason: string | null };
 type SchoolYear = { starts_on: string; ends_on: string };
@@ -42,20 +48,8 @@ type DayAssignment = {
   volunteer: { id: string; name: string };
 };
 type DayShift = ShiftRow & { assignments: DayAssignment[] };
-// Roster rows with the extra columns the hover tooltip shows.
-type RosterDetail = RosterVolunteer & {
-  grades: string | null;
-  frequency_note: string | null;
-  notes: string | null;
-};
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const WEEKDAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu'];
-const FREQ_LABEL: Record<Frequency, string> = {
-  monthly: '1×/month',
-  biweekly: '2×/month',
-  custom: 'custom',
-};
 
 async function chunkedInsert(table: string, rows: Record<string, unknown>[]): Promise<string | null> {
   for (let i = 0; i < rows.length; i += 200) {
@@ -327,10 +321,7 @@ export function SchedulePage() {
         .from('green_team_shifts')
         .select('id, date, slot, assignments:shift_volunteers ( volunteer_id, status, volunteer:volunteers ( id, name ) )')
         .eq('date', dayDate),
-      supabase
-        .from('volunteers')
-        .select('id, name, frequency, backfill, grades, frequency_note, notes')
-        .order('name'),
+      supabase.from('volunteers').select(ROSTER_DETAIL_SELECT).order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
     ]);
     const loadError = shiftsRes.error ?? rosterRes.error ?? availRes.error;
@@ -415,36 +406,7 @@ export function SchedulePage() {
     return { available, backfill, others };
   }
 
-  // One line each: availability ("Mon E/L · Thu E"), frequency, grades, notes.
-  function volunteerTooltip(v: RosterDetail): string[] {
-    const byDay = new Map<number, Set<string>>();
-    for (const a of dayAvailability) {
-      if (a.volunteer_id !== v.id) continue;
-      let slots = byDay.get(a.weekday);
-      if (!slots) {
-        slots = new Set();
-        byDay.set(a.weekday, slots);
-      }
-      slots.add(a.slot);
-    }
-    const avail = [1, 2, 3, 4]
-      .filter((d) => byDay.has(d))
-      .map((d) => {
-        const slots = byDay.get(d)!;
-        const label = slots.has('early') && slots.has('late') ? 'E/L' : slots.has('early') ? 'E' : 'L';
-        return `${WEEKDAY_SHORT[d]} ${label}`;
-      })
-      .join(' · ');
-    const freq =
-      FREQ_LABEL[v.frequency] +
-      (v.frequency === 'custom' && v.frequency_note ? ` (${v.frequency_note})` : '');
-    return [
-      `Avail: ${avail || 'none listed'}`,
-      `Freq: ${freq}${v.backfill ? ' · backfill' : ''}`,
-      v.grades ? `Grades: ${v.grades}` : '',
-      v.notes ? `Notes: ${v.notes}` : '',
-    ].filter(Boolean);
-  }
+  const volunteerTooltip = (v: RosterDetail) => volunteerTooltipLines(v, dayAvailability);
 
   // Tooltip-wrapped anchor for a volunteer; plain anchor if unknown.
   function withVolunteerTooltip(id: string, anchor: ReactElement): ReactElement {

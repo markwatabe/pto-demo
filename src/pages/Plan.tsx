@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Badge,
   Body,
   Button,
   Caption,
@@ -13,6 +14,7 @@ import {
   Spinner,
   Stack,
   Strong,
+  Tooltip,
 } from '@apygee/atoms';
 import { supabase } from '../supabase';
 import {
@@ -25,22 +27,22 @@ import {
   type AssignmentRow,
   type AvailabilityRow,
   type DraftPlan,
-  type Frequency,
   type RosterVolunteer,
   type ShiftRow,
   type Slot,
 } from '../schedule';
+import {
+  FREQ_LABEL,
+  ROSTER_DETAIL_SELECT,
+  volunteerTooltipLines,
+  type RosterDetail,
+} from '../volunteerInfo';
 
 type SchoolYear = { starts_on: string; ends_on: string };
 type MonthShift = ShiftRow & {
   assignments: { volunteer: { id: string; name: string } }[];
 };
-
-const FREQ_LABEL: Record<Frequency, string> = {
-  monthly: '1×/month',
-  biweekly: '2×/month',
-  custom: 'custom',
-};
+type Person = { id: string; name: string };
 
 const MONTH_NAMES = [
   'January',
@@ -82,8 +84,8 @@ type Preview = {
   plan: DraftPlan;
   // volunteer id -> new assignments this preview would add
   loads: Array<{ volunteer: RosterVolunteer; added: number }>;
-  // every drafted (not yet saved) pick, resolved to date/slot/name
-  added: Array<{ date: string; slot: Slot; name: string }>;
+  // every drafted (not yet saved) pick, resolved to date/slot/person
+  added: Array<{ date: string; slot: Slot; person: Person }>;
 };
 
 // "2026-09-14" -> "Mon, Sep 14"
@@ -115,6 +117,28 @@ export function PlanPage() {
   const [busy, setBusy] = useState<'preview' | 'apply' | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [monthShifts, setMonthShifts] = useState<MonthShift[]>([]);
+  const [roster, setRoster] = useState<RosterDetail[]>([]);
+  const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
+
+  // Roster details + full availability back the hover tooltips on pills.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      supabase.from('volunteers').select(ROSTER_DETAIL_SELECT).order('name'),
+      supabase.from('availability').select('volunteer_id, weekday, slot'),
+    ]).then(([rosterRes, availRes]) => {
+      if (cancelled) return;
+      if (rosterRes.error || availRes.error) {
+        setError((rosterRes.error ?? availRes.error)!.message);
+        return;
+      }
+      setRoster((rosterRes.data ?? []) as RosterDetail[]);
+      setAvailability((availRes.data ?? []) as AvailabilityRow[]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // The month's saved schedule (shifts with assigned volunteer names).
   const loadMonth = useCallback(async (ym: string) => {
@@ -254,7 +278,13 @@ export function PlanPage() {
     const added = plan.assignmentInserts.flatMap((a) => {
       const shift = shiftById.get(a.shift_id);
       return shift
-        ? [{ date: shift.date, slot: shift.slot, name: nameById.get(a.volunteer_id) ?? '?' }]
+        ? [
+            {
+              date: shift.date,
+              slot: shift.slot,
+              person: { id: a.volunteer_id, name: nameById.get(a.volunteer_id) ?? '?' },
+            },
+          ]
         : [];
     });
 
@@ -288,9 +318,9 @@ export function PlanPage() {
 
   const summary = preview?.plan.summary ?? null;
 
-  // date -> per-slot saved and drafted names, merged for the schedule list.
+  // date -> per-slot saved and drafted people, merged for the schedule list.
   const scheduleDays = useMemo(() => {
-    const byDate = new Map<string, Record<Slot, { saved: string[]; drafted: string[] }>>();
+    const byDate = new Map<string, Record<Slot, { saved: Person[]; drafted: Person[] }>>();
     const cell = (date: string, slot: Slot) => {
       let day = byDate.get(date);
       if (!day) {
@@ -301,13 +331,13 @@ export function PlanPage() {
     };
     for (const s of monthShifts) {
       const c = cell(s.date, s.slot);
-      for (const a of s.assignments) c.saved.push(a.volunteer.name);
+      for (const a of s.assignments) c.saved.push(a.volunteer);
     }
     if (preview?.month === month) {
-      for (const a of preview.added) cell(a.date, a.slot).drafted.push(a.name);
+      for (const a of preview.added) cell(a.date, a.slot).drafted.push(a.person);
     }
     for (const day of byDate.values()) {
-      for (const slot of SLOTS) day[slot].saved.sort((x, y) => x.localeCompare(y));
+      for (const slot of SLOTS) day[slot].saved.sort((x, y) => x.name.localeCompare(y.name));
     }
     return [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [monthShifts, preview, month]);
@@ -362,7 +392,7 @@ export function PlanPage() {
               <Stack gap="md">
                 <SectionTitle>{`Schedule for ${monthLabel(month)}`}</SectionTitle>
                 {hasDraft ? (
-                  <Caption>Names marked * are drafted — nothing is saved until you press Apply.</Caption>
+                  <Caption>Highlighted pills are drafted — nothing is saved until you press Apply.</Caption>
                 ) : null}
                 {scheduleDays.length === 0 ? (
                   <Body>No shifts scheduled this month yet. Run Preview to draft one.</Body>
@@ -373,11 +403,39 @@ export function PlanPage() {
                         <Strong>{dayLabel(date)}</Strong>
                         {SLOTS.map((slot) => {
                           const { saved, drafted } = day[slot];
-                          const names = [...saved, ...drafted.map((n) => `${n} *`)];
+                          const people = [
+                            ...saved.map((p) => ({ ...p, drafted: false })),
+                            ...drafted.map((p) => ({ ...p, drafted: true })),
+                          ];
                           return (
-                            <Inline key={slot} gap="sm" wrap>
+                            <Inline key={slot} gap="sm" align="center" wrap>
                               <Caption>{SLOT_LABEL[slot]}</Caption>
-                              <Body>{names.length ? names.join(', ') : '—'}</Body>
+                              {people.length === 0 ? (
+                                <Body>—</Body>
+                              ) : (
+                                people.map((p) => {
+                                  const badge = (
+                                    <Badge tone={p.drafted ? 'warning' : 'neutral'}>{p.name}</Badge>
+                                  );
+                                  const v = roster.find((r) => r.id === p.id);
+                                  return v ? (
+                                    <Tooltip
+                                      key={p.id}
+                                      label={
+                                        <>
+                                          {volunteerTooltipLines(v, availability).map((line) => (
+                                            <div key={line}>{line}</div>
+                                          ))}
+                                        </>
+                                      }
+                                    >
+                                      {badge}
+                                    </Tooltip>
+                                  ) : (
+                                    <span key={p.id}>{badge}</span>
+                                  );
+                                })
+                              )}
                             </Inline>
                           );
                         })}
