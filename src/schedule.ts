@@ -73,9 +73,9 @@ export function schoolDaysBetween(
   return days;
 }
 
-/** Assignments allowed per trailing 28-day window. */
-export function budgetFor(frequency: Frequency): number {
-  return frequency === 'biweekly' ? 2 : 1;
+/** Weeks between assignments: biweekly = 2, monthly/custom = 4. */
+export function intervalWeeksFor(frequency: Frequency): number {
+  return frequency === 'biweekly' ? 2 : 4;
 }
 
 export type DraftPlan = {
@@ -84,20 +84,22 @@ export type DraftPlan = {
   summary: {
     schoolDays: number;
     shiftsCreated: number;
-    slotsFilled: number;
-    /** Picks made at or beyond the volunteer's frequency budget for that window. */
-    overBudgetPicks: number;
-    unfilled: { date: string; slot: Slot; assigned: number }[];
+    assignments: number;
+    /** Shift slots in range still holding fewer than 2 people — fine; volunteers can claim them. */
+    openSlots: number;
   };
 };
 
 /**
- * Build a draft schedule for [from, to]. Deterministic: candidates are scored
- * by (trailing-28-day assignments / frequency budget), ties broken by fewest
- * in-range assignments, then longest time since last assignment (never
- * assigned wins), then name ascending. Volunteers already on the other slot
- * of the same day are used only when a shift would otherwise stay under 2.
- * Existing assignments are never removed; re-runs fill gaps only.
+ * Build a draft schedule for [from, to] — person-centric, not coverage-
+ * centric. Every school day gets its two shift rows, then each volunteer
+ * (name order) is walked through the range at their own cadence
+ * (biweekly = every 2 weeks, monthly/custom = every 4), rotating through
+ * their availability cells so someone available for both slots alternates
+ * early/late across assignments. Empty slots are expected and fine —
+ * volunteers claim them from the public schedule. Shifts cap at 2 people.
+ * Existing assignments are never removed and anchor each volunteer's
+ * cadence, so re-runs only extend a schedule.
  */
 export function buildDraft(args: {
   from: string;
@@ -111,23 +113,11 @@ export function buildDraft(args: {
 }): DraftPlan {
   const { from, to, closures, newId } = args;
 
-  const volunteersById = new Map(args.volunteers.map((v) => [v.id, v]));
-
-  // (weekday:slot) -> volunteer ids available then, in stable input order.
-  const availableFor = new Map<string, string[]>();
-  for (const row of args.availability) {
-    if (!volunteersById.has(row.volunteer_id)) continue;
-    const key = `${row.weekday}:${row.slot}`;
-    const list = availableFor.get(key) ?? [];
-    list.push(row.volunteer_id);
-    availableFor.set(key, list);
-  }
-
   const shiftsByKey = new Map(args.existingShifts.map((s) => [`${s.date}|${s.slot}`, s]));
   const shiftsById = new Map(args.existingShifts.map((s) => [s.id, s]));
 
   const shiftAssignees = new Map<string, Set<string>>();
-  const assignedDates = new Map<string, string[]>();
+  const assignedDates = new Map<string, Set<string>>();
   const record = (volunteerId: string, shiftId: string, date: string) => {
     let set = shiftAssignees.get(shiftId);
     if (!set) {
@@ -135,103 +125,97 @@ export function buildDraft(args: {
       shiftAssignees.set(shiftId, set);
     }
     set.add(volunteerId);
-    const dates = assignedDates.get(volunteerId) ?? [];
-    dates.push(date);
-    assignedDates.set(volunteerId, dates);
+    let dates = assignedDates.get(volunteerId);
+    if (!dates) {
+      dates = new Set();
+      assignedDates.set(volunteerId, dates);
+    }
+    dates.add(date);
   };
   for (const a of args.existingAssignments) {
     const shift = shiftsById.get(a.shift_id);
     if (shift) record(a.volunteer_id, a.shift_id, shift.date);
   }
 
-  // Assignments inside [from, to] per volunteer (tie-break #2).
-  const inRangeCount = new Map<string, number>();
-  for (const [volId, dates] of assignedDates) {
-    inRangeCount.set(volId, dates.filter((d) => d >= from && d <= to).length);
-  }
-
-  const windowStartFor = (date: string): string => {
-    const d = toLocalDate(date);
-    return isoDate(
-      new Date(d.getFullYear(), d.getMonth(), d.getDate() - (TRAILING_WINDOW_DAYS - 1)),
-    );
-  };
-
-  const pickBest = (candidateIds: string[], date: string): { id: string; ratio: number } | null => {
-    const windowStart = windowStartFor(date);
-    let best: { id: string; ratio: number; total: number; last: string } | null = null;
-    for (const id of candidateIds) {
-      const vol = volunteersById.get(id)!;
-      const dates = assignedDates.get(id) ?? [];
-      const inWindow = dates.filter((d) => d >= windowStart && d <= date).length;
-      const cand = {
-        id,
-        ratio: inWindow / budgetFor(vol.frequency),
-        total: inRangeCount.get(id) ?? 0,
-        // Highest ISO date = most recent; '' sorts before everything, so
-        // never-assigned volunteers win the "longest since last" tie-break.
-        last: dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : '',
-      };
-      const better =
-        !best ||
-        cand.ratio < best.ratio ||
-        (cand.ratio === best.ratio && cand.total < best.total) ||
-        (cand.ratio === best.ratio && cand.total === best.total && cand.last < best.last) ||
-        (cand.ratio === best.ratio &&
-          cand.total === best.total &&
-          cand.last === best.last &&
-          vol.name.localeCompare(volunteersById.get(best.id)!.name) < 0);
-      if (better) best = cand;
-    }
-    return best ? { id: best.id, ratio: best.ratio } : null;
-  };
-
+  // Every school day in range gets both shift rows, assigned or not — the
+  // public schedule renders them all and lets volunteers claim open ones.
   const shiftInserts: ShiftRow[] = [];
-  const assignmentInserts: AssignmentRow[] = [];
-  const unfilled: DraftPlan['summary']['unfilled'] = [];
-  let slotsFilled = 0;
-  let overBudgetPicks = 0;
-
   const days = schoolDaysBetween(from, to, closures);
   for (const date of days) {
-    const weekday = weekdayOf(date);
-
-    // Everyone already on either slot of this date (deprioritized pool).
-    const onThisDate = new Set<string>();
-    for (const slot of SLOTS) {
-      const existing = shiftsByKey.get(`${date}|${slot}`);
-      if (existing) {
-        for (const volId of shiftAssignees.get(existing.id) ?? []) onThisDate.add(volId);
-      }
-    }
-
     for (const slot of SLOTS) {
       const key = `${date}|${slot}`;
-      let shift = shiftsByKey.get(key);
-      if (!shift) {
-        shift = { id: newId(), date, slot };
+      if (!shiftsByKey.has(key)) {
+        const shift = { id: newId(), date, slot };
         shiftsByKey.set(key, shift);
         shiftsById.set(shift.id, shift);
         shiftInserts.push(shift);
       }
+    }
+  }
 
-      const availableIds = availableFor.get(`${weekday}:${slot}`) ?? [];
-      while ((shiftAssignees.get(shift.id)?.size ?? 0) < 2) {
-        const current = shiftAssignees.get(shift.id) ?? new Set<string>();
-        const fresh = availableIds.filter((id) => !current.has(id) && !onThisDate.has(id));
-        const sameDay = availableIds.filter((id) => !current.has(id) && onThisDate.has(id));
-        const picked = pickBest(fresh, date) ?? pickBest(sameDay, date);
-        if (!picked) break;
-        if (picked.ratio >= 1) overBudgetPicks++;
-        record(picked.id, shift.id, date);
-        inRangeCount.set(picked.id, (inRangeCount.get(picked.id) ?? 0) + 1);
-        assignmentInserts.push({ shift_id: shift.id, volunteer_id: picked.id });
-        onThisDate.add(picked.id);
-        slotsFilled++;
+  // Week math: week 0 starts the Monday of `from`'s week.
+  const fromDate = toLocalDate(from);
+  const origin = new Date(
+    fromDate.getFullYear(),
+    fromDate.getMonth(),
+    fromDate.getDate() - (weekdayOf(from) - 1),
+  );
+  const weekOf = (iso: string): number =>
+    Math.floor((toLocalDate(iso).getTime() - origin.getTime()) / (7 * 24 * 3600 * 1000));
+  const dateOf = (week: number, weekday: number): string =>
+    isoDate(
+      new Date(origin.getFullYear(), origin.getMonth(), origin.getDate() + week * 7 + weekday - 1),
+    );
+  const maxWeek = weekOf(to);
+
+  const cellsByVolunteer = new Map<string, AvailabilityRow[]>();
+  for (const row of args.availability) {
+    const list = cellsByVolunteer.get(row.volunteer_id) ?? [];
+    list.push(row);
+    cellsByVolunteer.set(row.volunteer_id, list);
+  }
+
+  const assignmentInserts: AssignmentRow[] = [];
+  const volunteers = [...args.volunteers].sort((a, b) => a.name.localeCompare(b.name));
+  for (const volunteer of volunteers) {
+    const cells = (cellsByVolunteer.get(volunteer.id) ?? [])
+      .slice()
+      .sort((a, b) => a.weekday - b.weekday || a.slot.localeCompare(b.slot));
+    if (cells.length === 0) continue;
+
+    const interval = intervalWeeksFor(volunteer.frequency);
+    const myDates = assignedDates.get(volunteer.id) ?? new Set<string>();
+    // Rotation continues across re-runs; last assignment anchors the cadence.
+    let rotation = [...myDates].filter((d) => d >= from && d <= to).length;
+    const last = [...myDates].reduce((a, b) => (a > b ? a : b), '');
+    let week = last ? Math.max(weekOf(last) + interval, 0) : 0;
+
+    while (week <= maxWeek) {
+      let placed = false;
+      for (let c = 0; c < cells.length && !placed; c++) {
+        const cell = cells[(rotation + c) % cells.length]!;
+        const date = dateOf(week, cell.weekday);
+        if (date < from || date > to || !isSchoolDay(date, closures)) continue;
+        const shift = shiftsByKey.get(`${date}|${cell.slot}`);
+        if (!shift) continue;
+        if ((shiftAssignees.get(shift.id)?.size ?? 0) >= 2) continue;
+        if (myDates.has(date)) continue;
+        record(volunteer.id, shift.id, date);
+        assignmentInserts.push({ shift_id: shift.id, volunteer_id: volunteer.id });
+        rotation++;
+        placed = true;
       }
+      // A week that can't take them (closure, full shifts) slides the
+      // cadence by one week instead of dropping the assignment.
+      week += placed ? interval : 1;
+    }
+  }
 
-      const assigned = shiftAssignees.get(shift.id)?.size ?? 0;
-      if (assigned < 2) unfilled.push({ date, slot, assigned });
+  let openSlots = 0;
+  for (const date of days) {
+    for (const slot of SLOTS) {
+      const shift = shiftsByKey.get(`${date}|${slot}`)!;
+      if ((shiftAssignees.get(shift.id)?.size ?? 0) < 2) openSlots++;
     }
   }
 
@@ -241,9 +225,8 @@ export function buildDraft(args: {
     summary: {
       schoolDays: days.length,
       shiftsCreated: shiftInserts.length,
-      slotsFilled,
-      overBudgetPicks,
-      unfilled,
+      assignments: assignmentInserts.length,
+      openSlots,
     },
   };
 }

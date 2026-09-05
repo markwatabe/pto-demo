@@ -451,24 +451,8 @@ export function PlanPage() {
                 <Stack gap="md">
                   <SectionTitle>{`Draft for ${monthLabel(preview.month)}`}</SectionTitle>
                   <Body>
-                    {`${summary.schoolDays} school days · ${summary.shiftsCreated} new shifts · ${summary.slotsFilled} slots filled`}
+                    {`${summary.schoolDays} school days · ${summary.shiftsCreated} new shifts · ${summary.assignments} assignments · ${summary.openSlots} slots left open for claiming`}
                   </Body>
-                  {summary.overBudgetPicks > 0 ? (
-                    <Alert
-                      tone="warning"
-                      title={`${summary.overBudgetPicks} over-budget picks`}
-                      description="Some volunteers are drafted more often than their requested frequency — the roster is thinner than the month needs."
-                    />
-                  ) : null}
-                  {summary.unfilled.length > 0 ? (
-                    <Alert
-                      tone="warning"
-                      title={`${summary.unfilled.length} understaffed slots`}
-                      description={summary.unfilled
-                        .map((u) => `${u.date} ${SLOT_LABEL[u.slot]} (${u.assigned}/2)`)
-                        .join(' · ')}
-                    />
-                  ) : null}
 
                   <Divider />
 

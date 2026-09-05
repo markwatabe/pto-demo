@@ -528,8 +528,9 @@ export function SchedulePage() {
               <Stack gap="md">
                 <SectionTitle>Generate schedule</SectionTitle>
                 <Caption>
-                  Fills every school-day shift up to 2 volunteers from availability, respecting how
-                  often each person wants to serve. Existing assignments are kept.
+                  Assigns each volunteer at their own cadence (monthly or every other week),
+                  rotating through their available slots. Open slots are expected — volunteers can
+                  claim them from the public schedule. Existing assignments are kept.
                 </Caption>
                 <Inline gap="md" wrap>
                   <TextField
@@ -551,25 +552,9 @@ export function SchedulePage() {
                   {generating ? 'Generating…' : 'Generate draft'}
                 </Button>
                 {summary ? (
-                  <Stack gap="xs">
-                    <Body>
-                      {`${summary.schoolDays} school days · ${summary.shiftsCreated} new shifts · ${summary.slotsFilled} slots filled`}
-                    </Body>
-                    {summary.overBudgetPicks > 0 ? (
-                      <Caption>
-                        {`${summary.overBudgetPicks} assignments exceed a volunteer's requested frequency — the roster is thinner than the schedule needs.`}
-                      </Caption>
-                    ) : null}
-                    {summary.unfilled.length > 0 ? (
-                      <Caption>
-                        {`Understaffed: ${summary.unfilled
-                          .map((u) => `${u.date} ${SLOT_LABEL[u.slot]} (${u.assigned}/2)`)
-                          .join(', ')}`}
-                      </Caption>
-                    ) : (
-                      <Caption>Every shift has 2 volunteers.</Caption>
-                    )}
-                  </Stack>
+                  <Body>
+                    {`${summary.schoolDays} school days · ${summary.shiftsCreated} new shifts · ${summary.assignments} assignments made · ${summary.openSlots} slots open for claiming`}
+                  </Body>
                 ) : null}
               </Stack>
             </Card>

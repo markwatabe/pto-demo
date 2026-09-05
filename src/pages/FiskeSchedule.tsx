@@ -105,6 +105,7 @@ export function FiskeSchedulePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState<Day[] | null>(null);
+  const [claiming, setClaiming] = useState<string | null>(null);
   const [push, setPush] = useState<PushState>('unsupported');
 
   // Figure out where this device stands on notifications.
@@ -195,6 +196,29 @@ export function FiskeSchedulePage() {
     if (email) load(email);
   }, [email, load]);
 
+  async function claim(date: string, slot: Slot) {
+    setClaiming(`${date}|${slot}`);
+    setError(null);
+    const { error: fnError } = await supabase.functions.invoke('claim-shift', {
+      body: { email, date, slot },
+    });
+    if (fnError) {
+      // FunctionsHttpError carries the response; surface the server's message.
+      let message = 'Could not claim the shift. Please try again.';
+      try {
+        const ctx = (fnError as { context?: Response }).context;
+        if (ctx) message = (await ctx.json()).error ?? message;
+      } catch {
+        // keep the generic message
+      }
+      setError(message);
+      setClaiming(null);
+      return;
+    }
+    await load(email);
+    setClaiming(null);
+  }
+
   function saveEmail(event: FormEvent) {
     event.preventDefault();
     const value = emailInput.trim().toLowerCase();
@@ -280,11 +304,20 @@ export function FiskeSchedulePage() {
                         <span style={{ flexShrink: 0, width: '2.6rem' }}>
                           <Caption>{SLOT_NAME[shift.slot]}</Caption>
                         </span>
-                        {shift.people.length === 0 ? (
-                          <Body>Nobody yet</Body>
-                        ) : (
-                          shift.people.map((p) => <Pill key={p.name} me={p.me} name={p.name} />)
-                        )}
+                        {shift.people.map((p) => (
+                          <Pill key={p.name} me={p.me} name={p.name} />
+                        ))}
+                        {shift.people.length < 2 ? (
+                          <span style={{ marginLeft: 'auto', flexShrink: 0 }}>
+                            <Button
+                              variant="ghost"
+                              onClick={() => claim(day.date, shift.slot)}
+                              disabled={claiming !== null}
+                            >
+                              {claiming === `${day.date}|${shift.slot}` ? 'Claiming…' : 'Claim'}
+                            </Button>
+                          </span>
+                        ) : null}
                       </div>
                   ))}
                 </Stack>

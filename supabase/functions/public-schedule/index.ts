@@ -1,8 +1,8 @@
 // Public (no-login) read of the upcoming Green Team schedule for the
-// /fiske-schedule view: only days that actually have shifts. Returns
-// volunteer NAMES only; the caller's email is used server-side to flag their
-// own shifts and is never echoed back, and nobody else's email ever leaves
-// the server.
+// /fiske-schedule view: EVERY school day from today, both slots, empty or
+// not, so open slots can be claimed. Returns volunteer NAMES only; the
+// caller's email is used server-side to flag their own shifts and is never
+// echoed back, and nobody else's email ever leaves the server.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const CORS = {
@@ -17,9 +17,24 @@ const json = (status: number, body: unknown) =>
     headers: { ...CORS, 'Content-Type': 'application/json' },
   });
 
+const SLOTS = ['early', 'late'] as const;
+
 // School-local "today" (dates in the DB are school-local calendar dates).
 function todayInNewYork(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
+// 1=Mon .. 7=Sun for a YYYY-MM-DD taken as a plain calendar date.
+function weekdayOf(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  const day = new Date(Date.UTC(y!, (m ?? 1) - 1, d ?? 1)).getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
+function nextDay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y!, (m ?? 1) - 1, (d ?? 1) + 1));
+  return dt.toISOString().slice(0, 10);
 }
 
 Deno.serve(async (req) => {
@@ -41,44 +56,48 @@ Deno.serve(async (req) => {
     const from = today > year.starts_on ? today : year.starts_on;
     if (from > year.ends_on) return json(200, { days: [] });
 
-    const shiftsRes = await db
-      .from('green_team_shifts')
-      .select('date, slot, volunteers:volunteers!shift_volunteers ( name, email )')
-      .gte('date', from)
-      .lte('date', year.ends_on)
-      .order('date');
-    if (shiftsRes.error) {
-      return json(500, { error: shiftsRes.error.message });
+    const [shiftsRes, closuresRes] = await Promise.all([
+      db
+        .from('green_team_shifts')
+        .select('date, slot, volunteers:volunteers!shift_volunteers ( name, email )')
+        .gte('date', from)
+        .lte('date', year.ends_on),
+      db.from('school_closures').select('date'),
+    ]);
+    if (shiftsRes.error || closuresRes.error) {
+      return json(500, { error: (shiftsRes.error ?? closuresRes.error)!.message });
     }
 
     type ShiftRow = { date: string; slot: string; volunteers: { name: string; email: string }[] };
-    type Day = {
-      date: string;
-      shifts: { slot: string; people: { name: string; me: boolean }[] }[];
-    };
-    const days = new Map<string, Day>();
-    const dayFor = (date: string) => {
-      let d = days.get(date);
-      if (!d) {
-        d = { date, shifts: [] };
-        days.set(date, d);
-      }
-      return d;
-    };
-
+    type Person = { name: string; me: boolean };
+    const peopleByKey = new Map<string, Person[]>();
     for (const shift of (shiftsRes.data ?? []) as unknown as ShiftRow[]) {
-      dayFor(shift.date).shifts.push({
-        slot: shift.slot,
-        people: shift.volunteers
+      peopleByKey.set(
+        `${shift.date}|${shift.slot}`,
+        shift.volunteers
           .map((v) => ({ name: v.name, me: v.email.toLowerCase() === me }))
           .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    }
+
+    const closures = new Set(
+      ((closuresRes.data ?? []) as { date: string }[]).map((c) => c.date),
+    );
+
+    // Every school day (Mon-Thu, not a closure) gets both slots, empty or not.
+    const days: { date: string; shifts: { slot: string; people: Person[] }[] }[] = [];
+    for (let date = from; date <= year.ends_on; date = nextDay(date)) {
+      if (weekdayOf(date) > 4 || closures.has(date)) continue;
+      days.push({
+        date,
+        shifts: SLOTS.map((slot) => ({
+          slot,
+          people: peopleByKey.get(`${date}|${slot}`) ?? [],
+        })),
       });
     }
 
-    const sorted = [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
-    for (const d of sorted) d.shifts.sort((a, b) => a.slot.localeCompare(b.slot));
-
-    return json(200, { days: sorted });
+    return json(200, { days });
   } catch (err) {
     return json(500, { error: err instanceof Error ? err.message : String(err) });
   }
