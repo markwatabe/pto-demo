@@ -12,7 +12,8 @@ export type RosterDetail = RosterVolunteer & {
 };
 
 /** The volunteers select list matching RosterDetail. */
-export const ROSTER_DETAIL_SELECT = 'id, name, frequency, backfill, grades, frequency_note, notes';
+export const ROSTER_DETAIL_SELECT =
+  'id, name, frequency, backfill, veteran, grades, frequency_note, notes';
 
 export const FREQ_LABEL: Record<Frequency, string> = {
   monthly: '1×/month',
@@ -51,6 +52,7 @@ export function volunteerTooltipLines(
   return [
     `Avail: ${avail || 'none listed'}`,
     `Freq: ${freq}${v.backfill ? ' · backfill' : ''}`,
+    v.veteran ? 'Veteran — can take a shift alone' : 'New — pair with a veteran',
     v.grades ? `Grades: ${v.grades}` : '',
     v.notes ? `Notes: ${v.notes}` : '',
   ].filter(Boolean);

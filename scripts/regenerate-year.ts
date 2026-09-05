@@ -41,7 +41,7 @@ async function main() {
   const [shiftsRes, closuresRes, volunteersRes, availabilityRes] = await Promise.all([
     db.from('green_team_shifts').select('id, date, slot'),
     db.from('school_closures').select('date'),
-    db.from('volunteers').select('id, name, frequency, backfill'),
+    db.from('volunteers').select('id, name, frequency, backfill, veteran'),
     db.from('availability').select('volunteer_id, weekday, slot'),
   ]);
   const fetchError =

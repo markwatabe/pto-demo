@@ -232,7 +232,7 @@ export function SchedulePage() {
         .gte('date', windowStartIso)
         .lte('date', to),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
-      supabase.from('volunteers').select('id, name, frequency, backfill'),
+      supabase.from('volunteers').select('id, name, frequency, backfill, veteran'),
       supabase.from('school_closures').select('date, reason'),
     ]);
     const fetchError =

@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
     const [{ data: year }, { data: closure }, { data: volunteer }] = await Promise.all([
       db.from('school_year').select('starts_on, ends_on').maybeSingle(),
       db.from('school_closures').select('date').eq('date', date).maybeSingle(),
-      db.from('volunteers').select('id').eq('email', email).maybeSingle(),
+      db.from('volunteers').select('id, veteran').eq('email', email).maybeSingle(),
     ]);
     if (!year || date < year.starts_on || date > year.ends_on || closure || weekdayOf(date) > 4) {
       return json(400, { error: 'That date is not a school day.' });
@@ -91,7 +91,7 @@ Deno.serve(async (req) => {
 
     const { data: assigned, error: countError } = await db
       .from('shift_volunteers')
-      .select('volunteer_id')
+      .select('volunteer_id, volunteer:volunteers ( veteran )')
       .eq('shift_id', shift.id);
     if (countError) return json(500, { error: countError.message });
     if (assigned!.some((a) => a.volunteer_id === volunteer.id)) {
@@ -99,6 +99,15 @@ Deno.serve(async (req) => {
     }
     if (assigned!.length >= 2) {
       return json(409, { error: 'This shift was just filled by someone else.' });
+    }
+    // New volunteers must pair with a veteran; veterans may go alone.
+    type AssignedRow = { volunteer_id: string; volunteer: { veteran: boolean } | null };
+    const hasVeteran = (assigned as unknown as AssignedRow[]).some((a) => a.volunteer?.veteran);
+    if (!volunteer.veteran && !hasVeteran) {
+      return json(409, {
+        error:
+          'New volunteers pair up with a veteran — claim a slot that already has a veteran on it.',
+      });
     }
 
     const { error: insertError } = await db

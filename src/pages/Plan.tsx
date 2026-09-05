@@ -224,7 +224,7 @@ export function PlanPage() {
         .gte('date', windowStartIso)
         .lte('date', to),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
-      supabase.from('volunteers').select('id, name, frequency, backfill').order('name'),
+      supabase.from('volunteers').select('id, name, frequency, backfill, veteran').order('name'),
       supabase.from('school_closures').select('date'),
     ]);
     const fetchError =

@@ -25,6 +25,8 @@ export type RosterVolunteer = {
   name: string;
   frequency: Frequency;
   backfill: boolean;
+  /** Veterans may take a shift alone; new volunteers must pair with one. */
+  veteran: boolean;
 };
 
 export type AvailabilityRow = { volunteer_id: string; weekday: number; slot: Slot };
@@ -93,13 +95,15 @@ export type DraftPlan = {
 /**
  * Build a draft schedule for [from, to] — person-centric, not coverage-
  * centric. Every school day gets its two shift rows, then each volunteer
- * (name order) is walked through the range at their own cadence
- * (biweekly = every 2 weeks, monthly/custom = every 4), rotating through
- * their availability cells so someone available for both slots alternates
- * early/late across assignments. Empty slots are expected and fine —
- * volunteers claim them from the public schedule. Shifts cap at 2 people.
- * Existing assignments are never removed and anchor each volunteer's
- * cadence, so re-runs only extend a schedule.
+ * is walked through the range at their own cadence (biweekly = every
+ * 2 weeks, monthly/custom = every 4), rotating through their availability
+ * cells so someone available for both slots alternates early/late across
+ * assignments. Veterans go first and may hold a shift alone; new
+ * volunteers are only ever placed onto a shift that already has a veteran.
+ * Empty slots are expected and fine — volunteers claim them from the
+ * public schedule. Shifts cap at 2 people. Existing assignments are never
+ * removed and anchor each volunteer's cadence, so re-runs only extend a
+ * schedule.
  */
 export function buildDraft(args: {
   from: string;
@@ -175,8 +179,20 @@ export function buildDraft(args: {
     cellsByVolunteer.set(row.volunteer_id, list);
   }
 
+  // shift id -> a veteran is on it (new volunteers may only join these).
+  const volunteersById = new Map(args.volunteers.map((v) => [v.id, v]));
+  const veteranOn = new Set<string>();
+  for (const [shiftId, assignees] of shiftAssignees) {
+    for (const id of assignees) {
+      if (volunteersById.get(id)?.veteran) veteranOn.add(shiftId);
+    }
+  }
+
   const assignmentInserts: AssignmentRow[] = [];
-  const volunteers = [...args.volunteers].sort((a, b) => a.name.localeCompare(b.name));
+  // Veterans first so new volunteers have veteran shifts to join.
+  const volunteers = [...args.volunteers].sort(
+    (a, b) => Number(b.veteran) - Number(a.veteran) || a.name.localeCompare(b.name),
+  );
   for (const volunteer of volunteers) {
     const cells = (cellsByVolunteer.get(volunteer.id) ?? [])
       .slice()
@@ -200,8 +216,10 @@ export function buildDraft(args: {
         if (!shift) continue;
         if ((shiftAssignees.get(shift.id)?.size ?? 0) >= 2) continue;
         if (myDates.has(date)) continue;
+        if (!volunteer.veteran && !veteranOn.has(shift.id)) continue;
         record(volunteer.id, shift.id, date);
         assignmentInserts.push({ shift_id: shift.id, volunteer_id: volunteer.id });
+        if (volunteer.veteran) veteranOn.add(shift.id);
         rotation++;
         placed = true;
       }
