@@ -72,10 +72,11 @@ async function main() {
   await chunkedInsert('green_team_shifts', plan.shiftInserts);
   await chunkedInsert('shift_volunteers', plan.assignmentInserts);
 
-  const { schoolDays, shiftsCreated, assignments, openSlots } = plan.summary;
+  const { schoolDays, shiftsCreated, assignments, openSlots, emptyShifts } = plan.summary;
   console.log(
     `Regenerated ${year.starts_on} → ${year.ends_on}: ${schoolDays} school days, ` +
-      `${shiftsCreated} new shift rows, ${assignments} assignments, ${openSlots} open slots.`,
+      `${shiftsCreated} new shift rows, ${assignments} assignments, ${openSlots} open slots, ` +
+      `${emptyShifts} shifts with nobody.`,
   );
 
   // Per-volunteer counts for a quick eyeball.

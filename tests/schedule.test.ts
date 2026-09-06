@@ -1,0 +1,152 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  buildDraft,
+  weekdayOf,
+  type AvailabilityRow,
+  type RosterVolunteer,
+} from '../src/schedule';
+
+// 2026-09-07 is a Monday. Two school weeks: Sep 7–10 and Sep 14–17.
+const FROM = '2026-09-07';
+const TWO_WEEKS = '2026-09-18';
+const EIGHT_WEEKS = '2026-10-30';
+
+let nextId = 0;
+const newId = () => `id-${++nextId}`;
+
+function vol(
+  id: string,
+  opts: Partial<RosterVolunteer> = {},
+): RosterVolunteer {
+  return { id, name: id, frequency: 'monthly', backfill: false, veteran: true, ...opts };
+}
+
+// weekday 1..4 × slot cells
+function cells(id: string, list: Array<[number, 'early' | 'late']>): AvailabilityRow[] {
+  return list.map(([weekday, slot]) => ({ volunteer_id: id, weekday, slot }));
+}
+const ALL_CELLS: Array<[number, 'early' | 'late']> = [1, 2, 3, 4].flatMap((d) => [
+  [d, 'early'] as [number, 'early'],
+  [d, 'late'] as [number, 'late'],
+]);
+
+function draft(args: {
+  to: string;
+  volunteers: RosterVolunteer[];
+  availability: AvailabilityRow[];
+  existing?: { shifts: { id: string; date: string; slot: 'early' | 'late' }[]; assignments: { shift_id: string; volunteer_id: string }[] };
+}) {
+  return buildDraft({
+    from: FROM,
+    to: args.to,
+    closures: new Set(),
+    existingShifts: args.existing?.shifts ?? [],
+    existingAssignments: args.existing?.assignments ?? [],
+    availability: args.availability,
+    volunteers: args.volunteers,
+    newId,
+  });
+}
+
+test('rule 1: only availability cells, spaced by cadence', () => {
+  const plan = draft({
+    to: EIGHT_WEEKS,
+    volunteers: [vol('a', { frequency: 'monthly' })],
+    availability: cells('a', [[1, 'early']]),
+  });
+  const shiftById = new Map(plan.shiftInserts.map((s) => [s.id, s]));
+  const dates = plan.assignmentInserts.map((x) => shiftById.get(x.shift_id)!);
+  assert.ok(dates.length > 0);
+  for (const s of dates) {
+    assert.equal(weekdayOf(s.date), 1);
+    assert.equal(s.slot, 'early');
+  }
+  // 8 weeks at a 4-week cadence → 2 shifts, 4 weeks apart.
+  assert.equal(dates.length, 2);
+  assert.deepEqual(dates.map((s) => s.date).sort(), ['2026-09-07', '2026-10-05']);
+});
+
+test('weekly cadence gives one shift per week, never two in a week', () => {
+  const plan = draft({
+    to: TWO_WEEKS,
+    volunteers: [vol('a', { frequency: 'weekly' })],
+    availability: cells('a', ALL_CELLS),
+  });
+  assert.equal(plan.assignmentInserts.length, 2);
+});
+
+test('rule 2: cover every shift before doubling anyone up', () => {
+  // 8 shifts in one week, 8 weekly veterans → each shift gets exactly one.
+  const vols = Array.from({ length: 8 }, (_, i) => vol(`v${i}`, { frequency: 'weekly' }));
+  const plan = draft({
+    to: '2026-09-11',
+    volunteers: vols,
+    availability: vols.flatMap((v) => cells(v.id, ALL_CELLS)),
+  });
+  assert.equal(plan.summary.emptyShifts, 0);
+  assert.equal(plan.assignmentInserts.length, 8);
+  const perShift = new Map<string, number>();
+  for (const a of plan.assignmentInserts) perShift.set(a.shift_id, (perShift.get(a.shift_id) ?? 0) + 1);
+  assert.ok([...perShift.values()].every((n) => n === 1));
+});
+
+test('rule 3: doubles up once everything is covered, capped at 2', () => {
+  const vols = Array.from({ length: 20 }, (_, i) => vol(`v${i}`, { frequency: 'weekly' }));
+  const plan = draft({
+    to: '2026-09-11',
+    volunteers: vols,
+    availability: vols.flatMap((v) => cells(v.id, ALL_CELLS)),
+  });
+  assert.equal(plan.assignmentInserts.length, 16);
+  assert.equal(plan.summary.openSlots, 0);
+});
+
+test('new volunteers are never alone and only join a veteran', () => {
+  const plan = draft({
+    to: '2026-09-11',
+    volunteers: [vol('vet', { frequency: 'weekly' }), vol('new', { frequency: 'weekly', veteran: false })],
+    availability: [...cells('vet', ALL_CELLS), ...cells('new', ALL_CELLS)],
+  });
+  const byVol = new Map(plan.assignmentInserts.map((a) => [a.volunteer_id, a.shift_id]));
+  assert.equal(plan.assignmentInserts.length, 2);
+  assert.equal(byVol.get('new'), byVol.get('vet'));
+});
+
+test('a new volunteer with no veteran available stays unplaced', () => {
+  const plan = draft({
+    to: '2026-09-11',
+    volunteers: [vol('new', { veteran: false })],
+    availability: cells('new', ALL_CELLS),
+  });
+  assert.equal(plan.assignmentInserts.length, 0);
+  assert.equal(plan.summary.emptyShifts, 8);
+});
+
+test('existing assignments anchor the cadence and are never duplicated', () => {
+  const shifts = [{ id: 's0', date: '2026-09-07', slot: 'early' as const }];
+  const plan = draft({
+    to: EIGHT_WEEKS,
+    volunteers: [vol('a', { frequency: 'monthly' })],
+    availability: cells('a', [[1, 'early']]),
+    existing: { shifts, assignments: [{ shift_id: 's0', volunteer_id: 'a' }] },
+  });
+  const shiftById = new Map([...shifts, ...plan.shiftInserts].map((s) => [s.id, s]));
+  const dates = plan.assignmentInserts.map((x) => shiftById.get(x.shift_id)!.date);
+  assert.deepEqual(dates, ['2026-10-05']);
+});
+
+test('the person furthest behind their cadence is picked first', () => {
+  // One Mon/early shift per week for 2 weeks; 'busy' already holds week 1.
+  const shifts = [{ id: 's0', date: '2026-09-07', slot: 'early' as const }];
+  const plan = draft({
+    to: TWO_WEEKS,
+    volunteers: [vol('busy', { frequency: 'weekly' }), vol('idle', { frequency: 'weekly' })],
+    availability: [...cells('busy', [[1, 'early']]), ...cells('idle', [[1, 'early']])],
+    existing: { shifts, assignments: [{ shift_id: 's0', volunteer_id: 'busy' }] },
+  });
+  const shiftById = new Map([...shifts, ...plan.shiftInserts].map((s) => [s.id, s]));
+  const week2 = plan.assignmentInserts.filter((a) => shiftById.get(a.shift_id)!.date === '2026-09-14');
+  // Both fit (cap 2) but 'idle' must be placed first.
+  assert.equal(week2[0]!.volunteer_id, 'idle');
+});
