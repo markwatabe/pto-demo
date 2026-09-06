@@ -106,6 +106,10 @@ export function FiskeSchedulePage() {
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState<Day[] | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
+  // "date|slot" of the shift whose "Can't make it" is awaiting confirmation / sending.
+  const [declineKey, setDeclineKey] = useState<string | null>(null);
+  const [declining, setDeclining] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [push, setPush] = useState<PushState>('unsupported');
 
   // Figure out where this device stands on notifications.
@@ -219,6 +223,31 @@ export function FiskeSchedulePage() {
     setClaiming(null);
   }
 
+  async function decline(date: string, slot: Slot) {
+    setDeclining(true);
+    setError(null);
+    setNotice(null);
+    const { error: fnError } = await supabase.functions.invoke('decline-shift', {
+      body: { email, date, slot },
+    });
+    setDeclining(false);
+    if (fnError) {
+      let message = "Could not send that — please email the coordinator directly.";
+      try {
+        const ctx = (fnError as { context?: Response }).context;
+        if (ctx) message = (await ctx.json()).error ?? message;
+      } catch {
+        // keep the generic message
+      }
+      setError(message);
+      return;
+    }
+    setDeclineKey(null);
+    setNotice(
+      `Thanks — the coordinator has been told you can't make ${dayLabel(date)} (${SLOT_NAME[slot]}). You're still listed until they find cover.`,
+    );
+  }
+
   function saveEmail(event: FormEvent) {
     event.preventDefault();
     const value = emailInput.trim().toLowerCase();
@@ -283,6 +312,7 @@ export function FiskeSchedulePage() {
         />
 
         {error ? <Alert tone="danger" title="Something went wrong" description={error} /> : null}
+        {notice ? <Alert tone="success" title="Message sent" description={notice} /> : null}
 
         {isLoading || days === null ? (
           <Stack gap="md" align="center">
@@ -307,7 +337,48 @@ export function FiskeSchedulePage() {
                         {shift.people.map((p) => (
                           <Pill key={p.name} me={p.me} name={p.name} />
                         ))}
-                        {shift.people.length < 2 ? (
+                        {shift.people.some((p) => p.me) ? (
+                          <span
+                            style={{
+                              marginLeft: 'auto',
+                              flexShrink: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            {declineKey === `${day.date}|${shift.slot}` ? (
+                              <>
+                                <Caption>Tell the coordinator?</Caption>
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => decline(day.date, shift.slot)}
+                                  disabled={declining}
+                                >
+                                  {declining ? 'Sending…' : 'Yes'}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => setDeclineKey(null)}
+                                  disabled={declining}
+                                >
+                                  No
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                onClick={() => {
+                                  setNotice(null);
+                                  setDeclineKey(`${day.date}|${shift.slot}`);
+                                }}
+                                disabled={declining}
+                              >
+                                Can’t make it
+                              </Button>
+                            )}
+                          </span>
+                        ) : shift.people.length < 2 ? (
                           <span style={{ marginLeft: 'auto', flexShrink: 0 }}>
                             <Button
                               variant="ghost"
