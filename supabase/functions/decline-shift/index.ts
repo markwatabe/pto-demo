@@ -3,10 +3,10 @@
 // now this only emails the coordinator; the assignment is left in place so
 // the coordinator decides what to do with the slot.
 //
-// Mail goes out through the Gmail API as GOOGLE_IMPERSONATE_EMAIL (service
-// account + domain-wide delegation, scope gmail.send — that scope must be on
-// the DWD grant). Recipient: DECLINE_NOTIFY_EMAIL, defaulting to the
-// impersonated account.
+// Mail goes out through the Gmail API from the shared Green Team mailbox
+// (service account + domain-wide delegation impersonating MAIL_FROM_EMAIL,
+// scope gmail.send — that scope must be on the DWD grant). Recipient:
+// DECLINE_NOTIFY_EMAIL (the coordinator).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const CORS = {
@@ -181,22 +181,22 @@ Deno.serve(async (req) => {
 
     const saEmail = Deno.env.get('GOOGLE_SA_EMAIL');
     const saKey = Deno.env.get('GOOGLE_SA_PRIVATE_KEY');
-    const impersonate = Deno.env.get('GOOGLE_IMPERSONATE_EMAIL');
-    if (!saEmail || !saKey || !impersonate) {
+    if (!saEmail || !saKey) {
       return json(500, { error: 'Email is not configured on the server.' });
     }
-    const notify = Deno.env.get('DECLINE_NOTIFY_EMAIL') ?? impersonate;
+    const from = Deno.env.get('MAIL_FROM_EMAIL') ?? 'greenteam@fiskeschoolpto.org';
+    const notify = Deno.env.get('DECLINE_NOTIFY_EMAIL') ?? 'mwatabe@fiskeschoolpto.org';
 
     const when = `${longDate(date)} — ${SLOT_LABEL[slot]}`;
     const token = await googleAccessToken(
       saEmail,
       saKey,
-      impersonate,
+      from,
       'https://www.googleapis.com/auth/gmail.send',
     );
     await sendGmail({
       token,
-      from: impersonate,
+      from,
       to: notify,
       replyTo: email,
       subject: `Can't make it: ${volunteer.name} — ${longDate(date)} ${slot} shift`,
