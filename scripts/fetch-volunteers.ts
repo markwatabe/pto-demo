@@ -6,60 +6,17 @@
  * Usage:  pnpm fetch:volunteers   (runs this, then scripts/import-volunteers.ts)
  *
  * Auth: the PTO service account key (local file, never in git) impersonating
- * GOOGLE_IMPERSONATE_EMAIL via domain-wide delegation, Sheets scope.
+ * the sheet owner via domain-wide delegation — see scripts/lib/google.ts.
  */
 import 'dotenv/config';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { createSign } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { googleAccessToken, SCOPES, SHEETS_USER } from './lib/google';
 
-const KEY_FILE =
-  process.env.GOOGLE_SA_KEY_FILE ?? `${process.env.HOME}/.config/pto-calendar-sync-key.json`;
 const SHEET_ID =
   process.env.GOOGLE_VOLUNTEERS_SHEET_ID ?? '1jak9GvwPYAg7hBNguGTp0fN7DXnga-yZMCBjzWj4Qrk';
 const RESPONSES_GID = 1074567362;
 const CSV_PATH = fileURLToPath(new URL('../volunteers.csv', import.meta.url));
-
-const impersonate = process.env.GOOGLE_IMPERSONATE_EMAIL;
-if (!impersonate) throw new Error('Missing GOOGLE_IMPERSONATE_EMAIL in .env');
-
-type ServiceAccountKey = { client_email: string; private_key: string };
-
-function googleAssertion(key: ServiceAccountKey): string {
-  const b64u = (s: string) => Buffer.from(s).toString('base64url');
-  const now = Math.floor(Date.now() / 1000);
-  const header = b64u(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const claims = b64u(
-    JSON.stringify({
-      iss: key.client_email,
-      sub: impersonate,
-      scope: 'https://www.googleapis.com/auth/spreadsheets',
-      aud: 'https://oauth2.googleapis.com/token',
-      iat: now,
-      exp: now + 3600,
-    }),
-  );
-  const signer = createSign('RSA-SHA256');
-  signer.update(`${header}.${claims}`);
-  const sig = signer.sign(key.private_key).toString('base64url');
-  return `${header}.${claims}.${sig}`;
-}
-
-async function accessToken(key: ServiceAccountKey): Promise<string> {
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: googleAssertion(key),
-    }),
-  });
-  const data = await res.json();
-  if (!data.access_token) {
-    throw new Error(`Google token exchange failed: ${JSON.stringify(data)}`);
-  }
-  return data.access_token as string;
-}
 
 // RFC 4180 quoting; every row padded to the header's width so the importer
 // always sees a value (possibly empty) for every column.
@@ -77,8 +34,7 @@ function toCsv(rows: string[][]): string {
 }
 
 async function main() {
-  const key = JSON.parse(readFileSync(KEY_FILE, 'utf8')) as ServiceAccountKey;
-  const token = await accessToken(key);
+  const token = await googleAccessToken(SHEETS_USER, SCOPES.sheets);
   const gHeaders = { Authorization: `Bearer ${token}` };
 
   const metaRes = await fetch(

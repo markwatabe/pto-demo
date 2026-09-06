@@ -12,7 +12,8 @@
     "seed": "tsx scripts/seed.ts",
     "verify:rls": "tsx scripts/verify-rls.ts",
     "import:volunteers": "tsx scripts/import-volunteers.ts",
-    "fetch:volunteers": "tsx scripts/fetch-volunteers.ts && tsx scripts/import-volunteers.ts"
+    "fetch:volunteers": "tsx scripts/fetch-volunteers.ts && tsx scripts/import-volunteers.ts",
+    "test:invite": "tsx scripts/test-invite.ts"
   },
   "dependencies": {
     "@apygee/atoms": "^0.9.0",
