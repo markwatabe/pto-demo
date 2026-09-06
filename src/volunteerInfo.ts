@@ -16,6 +16,7 @@ export const ROSTER_DETAIL_SELECT =
   'id, name, frequency, backfill, veteran, grades, frequency_note, notes';
 
 export const FREQ_LABEL: Record<Frequency, string> = {
+  weekly: '1×/week',
   monthly: '1×/month',
   biweekly: '2×/month',
   custom: 'custom',

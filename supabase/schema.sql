@@ -91,7 +91,7 @@ create table volunteers (
   name text not null,
   veteran boolean not null default false,
   grades text,
-  frequency text not null default 'monthly' check (frequency in ('monthly', 'biweekly', 'custom')),
+  frequency text not null default 'monthly' check (frequency in ('weekly', 'biweekly', 'monthly', 'custom')),
   frequency_note text,
   cori text not null default 'unsure' check (cori in ('yes', 'no', 'unsure')),
   backfill boolean not null default false,

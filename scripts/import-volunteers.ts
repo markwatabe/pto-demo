@@ -1,5 +1,6 @@
 /**
- * Import Green Team volunteer sign-ups from volunteers.csv (Google Forms export).
+ * Import Green Team volunteers from volunteers.csv (the curated volunteer
+ * sheet, form-response column layout — see scripts/fetch-volunteers.ts).
  *
  * Usage:  pnpm import:volunteers
  *
@@ -52,8 +53,11 @@ function slotsFor(cell: string | undefined): string[] {
 
 function frequencyFor(cell: string | undefined): { frequency: string; note: string | null } {
   const text = (cell ?? '').trim();
+  if (text === 'Once a week') return { frequency: 'weekly', note: null };
+  if (text === 'Every other week' || text === 'Every two weeks') {
+    return { frequency: 'biweekly', note: null };
+  }
   if (text === 'Once a month') return { frequency: 'monthly', note: null };
-  if (text === 'Every other week') return { frequency: 'biweekly', note: null };
   return { frequency: 'custom', note: text || null };
 }
 

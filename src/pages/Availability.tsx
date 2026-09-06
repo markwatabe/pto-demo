@@ -18,7 +18,7 @@ import {
 import { supabase } from '../supabase';
 import { useAuth } from '../auth';
 
-type Frequency = 'monthly' | 'biweekly' | 'custom';
+type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'custom';
 
 type Volunteer = {
   id: string;
@@ -45,6 +45,7 @@ const SLOTS = [
 const FREQUENCIES: Array<{ value: Frequency; label: string }> = [
   { value: 'monthly', label: 'Once a month' },
   { value: 'biweekly', label: 'Every other week' },
+  { value: 'weekly', label: 'Once a week' },
   { value: 'custom', label: 'Custom' },
 ];
 

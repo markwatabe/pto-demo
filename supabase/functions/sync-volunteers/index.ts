@@ -1,4 +1,4 @@
-// Pulls the Green Team sign-up responses from the Google Form's spreadsheet
+// Pulls the curated Green Team volunteer sheet (form-response column layout)
 // into the volunteers + availability tables. Admin-only. Mirrors
 // scripts/import-volunteers.ts: upserts volunteers by (lowercased) email and
 // REPLACES their availability rows; never touches volunteers absent from the
@@ -18,8 +18,8 @@ const json = (status: number, body: unknown) =>
   });
 
 const SHEET_ID =
-  Deno.env.get('GOOGLE_VOLUNTEERS_SHEET_ID') ?? '13B8L5uu5UhyIP1BVv0QKq3ZTsAfXZu_iQ8-LTjY9_mk';
-const RESPONSES_GID = 702139134;
+  Deno.env.get('GOOGLE_VOLUNTEERS_SHEET_ID') ?? '1jak9GvwPYAg7hBNguGTp0fN7DXnga-yZMCBjzWj4Qrk';
+const RESPONSES_GID = 1074567362;
 
 function pemToArrayBuffer(pem: string): ArrayBuffer {
   const body = pem
@@ -110,8 +110,11 @@ function slotsFor(cell: string | undefined): string[] {
 
 function frequencyFor(cell: string | undefined): { frequency: string; note: string | null } {
   const text = (cell ?? '').trim();
+  if (text === 'Once a week') return { frequency: 'weekly', note: null };
+  if (text === 'Every other week' || text === 'Every two weeks') {
+    return { frequency: 'biweekly', note: null };
+  }
   if (text === 'Once a month') return { frequency: 'monthly', note: null };
-  if (text === 'Every other week') return { frequency: 'biweekly', note: null };
   return { frequency: 'custom', note: text || null };
 }
 

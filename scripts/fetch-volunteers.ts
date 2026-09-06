@@ -1,6 +1,7 @@
 /**
- * Pull the live Green Team sign-up responses from the Google Form's
- * spreadsheet and rewrite volunteers.csv (git-ignored — real PII).
+ * Pull the curated Green Team volunteer sheet ("Current Greenteam
+ * volunteers", tab Sheet2 — same columns as the sign-up form responses) and
+ * rewrite volunteers.csv (git-ignored — real PII).
  *
  * Usage:  pnpm fetch:volunteers   (runs this, then scripts/import-volunteers.ts)
  *
@@ -15,8 +16,8 @@ import { fileURLToPath } from 'node:url';
 const KEY_FILE =
   process.env.GOOGLE_SA_KEY_FILE ?? `${process.env.HOME}/.config/pto-calendar-sync-key.json`;
 const SHEET_ID =
-  process.env.GOOGLE_VOLUNTEERS_SHEET_ID ?? '13B8L5uu5UhyIP1BVv0QKq3ZTsAfXZu_iQ8-LTjY9_mk';
-const RESPONSES_GID = 702139134;
+  process.env.GOOGLE_VOLUNTEERS_SHEET_ID ?? '1jak9GvwPYAg7hBNguGTp0fN7DXnga-yZMCBjzWj4Qrk';
+const RESPONSES_GID = 1074567362;
 const CSV_PATH = fileURLToPath(new URL('../volunteers.csv', import.meta.url));
 
 const impersonate = process.env.GOOGLE_IMPERSONATE_EMAIL;

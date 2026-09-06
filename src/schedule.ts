@@ -18,7 +18,7 @@ export const SLOT_LABEL: Record<Slot, string> = {
   late: 'Late (12:20–1:30)',
 };
 
-export type Frequency = 'monthly' | 'biweekly' | 'custom';
+export type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'custom';
 
 export type RosterVolunteer = {
   id: string;
@@ -75,8 +75,9 @@ export function schoolDaysBetween(
   return days;
 }
 
-/** Weeks between assignments: biweekly = 2, monthly/custom = 4. */
+/** Weeks between assignments: weekly = 1, biweekly = 2, monthly/custom = 4. */
 export function intervalWeeksFor(frequency: Frequency): number {
+  if (frequency === 'weekly') return 1;
   return frequency === 'biweekly' ? 2 : 4;
 }
 
@@ -95,8 +96,8 @@ export type DraftPlan = {
 /**
  * Build a draft schedule for [from, to] — person-centric, not coverage-
  * centric. Every school day gets its two shift rows, then each volunteer
- * is walked through the range at their own cadence (biweekly = every
- * 2 weeks, monthly/custom = every 4), rotating through their availability
+ * is walked through the range at their own cadence (weekly = every week,
+ * biweekly = every 2, monthly/custom = every 4), rotating through their availability
  * cells so someone available for both slots alternates early/late across
  * assignments. Veterans go first and may hold a shift alone; new
  * volunteers are only ever placed onto a shift that already has a veteran.

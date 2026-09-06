@@ -22,7 +22,7 @@ type Volunteer = {
   name: string;
   veteran: boolean;
   grades: string | null;
-  frequency: 'monthly' | 'biweekly' | 'custom';
+  frequency: 'weekly' | 'biweekly' | 'monthly' | 'custom';
   frequency_note: string | null;
   cori: 'yes' | 'no' | 'unsure';
   backfill: boolean;
@@ -33,6 +33,7 @@ type Row = Volunteer & { availability: string };
 
 const WEEKDAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu'];
 const FREQ_LABEL: Record<Volunteer['frequency'], string> = {
+  weekly: '1×/week',
   monthly: '1×/month',
   biweekly: '2×/month',
   custom: 'custom',
