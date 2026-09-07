@@ -30,6 +30,8 @@ export type RosterVolunteer = {
 };
 
 export type AvailabilityRow = { volunteer_id: string; weekday: number; slot: Slot };
+/** An inclusive date window a volunteer can't do at all (vacation etc.). */
+export type BlackoutRow = { volunteer_id: string; starts_on: string; ends_on: string };
 export type ShiftRow = { id: string; date: string; slot: Slot };
 export type AssignmentRow = { shift_id: string; volunteer_id: string };
 
@@ -75,6 +77,17 @@ export function schoolDaysBetween(
   return days;
 }
 
+/** True when `iso` falls inside any of the volunteer's blackout windows. */
+export function isBlackedOut(
+  volunteerId: string,
+  iso: string,
+  blackouts: readonly BlackoutRow[],
+): boolean {
+  return blackouts.some(
+    (b) => b.volunteer_id === volunteerId && iso >= b.starts_on && iso <= b.ends_on,
+  );
+}
+
 /** Weeks between assignments: weekly = 1, biweekly = 2, monthly/custom = 4. */
 export function intervalWeeksFor(frequency: Frequency): number {
   if (frequency === 'weekly') return 1;
@@ -98,9 +111,10 @@ export type DraftPlan = {
 /**
  * Build a draft schedule for [from, to]. Priorities, in order:
  *
- *  1. Respect every volunteer's rules: only their availability cells, and
- *     never two shifts closer together than their cadence (weekly = 1 week
- *     apart, biweekly = 2, monthly/custom = 4).
+ *  1. Respect every volunteer's rules: only their availability cells, never
+ *     inside one of their blackout windows, and never two shifts closer
+ *     together than their cadence (weekly = 1 week apart, biweekly = 2,
+ *     monthly/custom = 4).
  *  2. Fill every shift with at least one person. Only veterans may hold a
  *     shift alone, so this pass places veterans — hardest-to-fill shifts
  *     first, always choosing the person furthest behind their cadence.
@@ -119,10 +133,12 @@ export function buildDraft(args: {
   existingShifts: readonly ShiftRow[];
   existingAssignments: readonly AssignmentRow[];
   availability: readonly AvailabilityRow[];
+  blackouts?: readonly BlackoutRow[];
   volunteers: readonly RosterVolunteer[];
   newId: () => string;
 }): DraftPlan {
   const { from, to, closures, newId } = args;
+  const blackouts = args.blackouts ?? [];
 
   const shiftsByKey = new Map(args.existingShifts.map((s) => [`${s.date}|${s.slot}`, s]));
   const shiftsById = new Map(args.existingShifts.map((s) => [s.id, s]));
@@ -194,12 +210,13 @@ export function buildDraft(args: {
   const hasVeteran = (shiftId: string): boolean =>
     [...(shiftAssignees.get(shiftId) ?? [])].some((id) => volunteersById.get(id)?.veteran);
 
-  // Rule check: the cell is in their availability and no other assignment
-  // of theirs sits within `interval` weeks of this one.
+  // Rule check: the cell is in their availability, the date isn't blacked
+  // out, and no other assignment of theirs sits within `interval` weeks.
   const canTake = (volunteer: RosterVolunteer, shift: ShiftRow): boolean => {
     if (!cellsByVolunteer.get(volunteer.id)?.has(`${weekdayOf(shift.date)}|${shift.slot}`)) {
       return false;
     }
+    if (isBlackedOut(volunteer.id, shift.date, blackouts)) return false;
     if (shiftAssignees.get(shift.id)?.has(volunteer.id)) return false;
     const interval = intervalWeeksFor(volunteer.frequency);
     const week = weekOf(shift.date);

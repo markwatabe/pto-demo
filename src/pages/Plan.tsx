@@ -26,6 +26,7 @@ import {
   TRAILING_WINDOW_DAYS,
   type AssignmentRow,
   type AvailabilityRow,
+  type BlackoutRow,
   type DraftPlan,
   type RosterVolunteer,
   type ShiftRow,
@@ -119,21 +120,25 @@ export function PlanPage() {
   const [monthShifts, setMonthShifts] = useState<MonthShift[]>([]);
   const [roster, setRoster] = useState<RosterDetail[]>([]);
   const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
+  const [blackouts, setBlackouts] = useState<BlackoutRow[]>([]);
 
-  // Roster details + full availability back the hover tooltips on pills.
+  // Roster details + full availability + blackouts back the hover tooltips on pills.
   useEffect(() => {
     let cancelled = false;
     Promise.all([
       supabase.from('volunteers').select(ROSTER_DETAIL_SELECT).order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
-    ]).then(([rosterRes, availRes]) => {
+      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
+    ]).then(([rosterRes, availRes, blackoutRes]) => {
       if (cancelled) return;
-      if (rosterRes.error || availRes.error) {
-        setError((rosterRes.error ?? availRes.error)!.message);
+      const loadError = rosterRes.error ?? availRes.error ?? blackoutRes.error;
+      if (loadError) {
+        setError(loadError.message);
         return;
       }
       setRoster((rosterRes.data ?? []) as RosterDetail[]);
       setAvailability((availRes.data ?? []) as AvailabilityRow[]);
+      setBlackouts((blackoutRes.data ?? []) as BlackoutRow[]);
     });
     return () => {
       cancelled = true;
@@ -217,7 +222,7 @@ export function PlanPage() {
       ),
     );
 
-    const [shiftsRes, availabilityRes, volunteersRes, closuresRes] = await Promise.all([
+    const [shiftsRes, availabilityRes, volunteersRes, closuresRes, blackoutsRes] = await Promise.all([
       supabase
         .from('green_team_shifts')
         .select('id, date, slot')
@@ -226,9 +231,14 @@ export function PlanPage() {
       supabase.from('availability').select('volunteer_id, weekday, slot'),
       supabase.from('volunteers').select('id, name, frequency, backfill, veteran').order('name'),
       supabase.from('school_closures').select('date'),
+      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
     ]);
     const fetchError =
-      shiftsRes.error ?? availabilityRes.error ?? volunteersRes.error ?? closuresRes.error;
+      shiftsRes.error ??
+      availabilityRes.error ??
+      volunteersRes.error ??
+      closuresRes.error ??
+      blackoutsRes.error;
     if (fetchError) {
       setBusy(null);
       setError(fetchError.message);
@@ -258,6 +268,7 @@ export function PlanPage() {
       existingShifts,
       existingAssignments,
       availability: (availabilityRes.data ?? []) as AvailabilityRow[],
+      blackouts: (blackoutsRes.data ?? []) as BlackoutRow[],
       volunteers,
       newId: () => crypto.randomUUID(),
     });
@@ -423,7 +434,7 @@ export function PlanPage() {
                                       key={p.id}
                                       label={
                                         <>
-                                          {volunteerTooltipLines(v, availability).map((line) => (
+                                          {volunteerTooltipLines(v, availability, blackouts).map((line) => (
                                             <div key={line}>{line}</div>
                                           ))}
                                         </>

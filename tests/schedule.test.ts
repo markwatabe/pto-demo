@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   buildDraft,
   weekdayOf,
+  isBlackedOut,
   type AvailabilityRow,
+  type BlackoutRow,
   type RosterVolunteer,
 } from '../src/schedule';
 
@@ -36,8 +38,10 @@ function draft(args: {
   volunteers: RosterVolunteer[];
   availability: AvailabilityRow[];
   existing?: { shifts: { id: string; date: string; slot: 'early' | 'late' }[]; assignments: { shift_id: string; volunteer_id: string }[] };
+  blackouts?: BlackoutRow[];
 }) {
   return buildDraft({
+    blackouts: args.blackouts,
     from: FROM,
     to: args.to,
     closures: new Set(),
@@ -149,4 +153,22 @@ test('the person furthest behind their cadence is picked first', () => {
   const week2 = plan.assignmentInserts.filter((a) => shiftById.get(a.shift_id)!.date === '2026-09-14');
   // Both fit (cap 2) but 'idle' must be placed first.
   assert.equal(week2[0]!.volunteer_id, 'idle');
+});
+
+test('rule 1: blackout windows are never scheduled, cadence resumes after', () => {
+  // Weekly, Mon/early only, 8 weeks; away for weeks 2–4 (Sep 21 – Oct 11).
+  const blackouts: BlackoutRow[] = [{ volunteer_id: 'a', starts_on: '2026-09-21', ends_on: '2026-10-11' }];
+  const plan = draft({
+    to: EIGHT_WEEKS,
+    volunteers: [vol('a', { frequency: 'weekly' })],
+    availability: cells('a', [[1, 'early']]),
+    blackouts,
+  });
+  const shiftById = new Map(plan.shiftInserts.map((s) => [s.id, s]));
+  const dates = plan.assignmentInserts.map((x) => shiftById.get(x.shift_id)!.date).sort();
+  assert.deepEqual(dates, ['2026-09-07', '2026-09-14', '2026-10-12', '2026-10-19', '2026-10-26']);
+  assert.equal(isBlackedOut('a', '2026-09-21', blackouts), true);
+  assert.equal(isBlackedOut('a', '2026-10-11', blackouts), true);
+  assert.equal(isBlackedOut('a', '2026-10-12', blackouts), false);
+  assert.equal(isBlackedOut('b', '2026-09-21', blackouts), false);
 });

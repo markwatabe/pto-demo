@@ -151,6 +151,7 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
 // ---- end helpers ----
 
 type Volunteer = { id: string; name: string; email: string; veteran: boolean; backfill: boolean };
+type Blackout = { volunteer_id: string; starts_on: string; ends_on: string };
 type Shift = { id: string; date: string; slot: string; people: { id: string; veteran: boolean }[] };
 
 async function claimLink(email: string, date: string, slot: string): Promise<string> {
@@ -164,13 +165,14 @@ async function claimLink(email: string, date: string, slot: string): Promise<str
 
 async function loadRoster() {
   const client = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-  const [vRes, aRes] = await Promise.all([
+  const [vRes, aRes, bRes] = await Promise.all([
     client.from('volunteers').select('id, name, email, veteran, backfill'),
     client.from('availability').select('volunteer_id, weekday, slot'),
+    client.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
   ]);
-  if (vRes.error || aRes.error) throw new Error((vRes.error ?? aRes.error)!.message);
+  if (vRes.error || aRes.error || bRes.error) throw new Error((vRes.error ?? aRes.error ?? bRes.error)!.message);
   const cells = new Set((aRes.data ?? []).map((a) => `${a.volunteer_id}|${a.weekday}|${a.slot}`));
-  return { volunteers: (vRes.data ?? []) as Volunteer[], cells };
+  return { volunteers: (vRes.data ?? []) as Volunteer[], cells, blackouts: (bRes.data ?? []) as Blackout[] };
 }
 
 async function loadShifts(from: string, to: string): Promise<Shift[]> {
@@ -191,24 +193,25 @@ async function loadShifts(from: string, to: string): Promise<Shift[]> {
   }));
 }
 
-/** Who may take this shift: available for the cell, not already on it, and paired with a veteran if new. */
-function candidates(shift: Shift, volunteers: Volunteer[], cells: Set<string>, exclude?: string): Volunteer[] {
+/** Who may take this shift: available for the cell, not away, not already on it, and paired with a veteran if new. */
+function candidates(shift: Shift, volunteers: Volunteer[], cells: Set<string>, blackouts: Blackout[], exclude?: string): Volunteer[] {
   const hasVeteran = shift.people.some((p) => p.veteran);
   return volunteers.filter(
     (v) =>
       v.email !== exclude &&
       cells.has(`${v.id}|${weekdayOf(shift.date)}|${shift.slot}`) &&
+      !blackouts.some((b) => b.volunteer_id === v.id && shift.date >= b.starts_on && shift.date <= b.ends_on) &&
       !shift.people.some((p) => p.id === v.id) &&
       (v.veteran || hasVeteran),
   );
 }
 
 async function coverOneShift(date: string, slot: string, exclude?: string) {
-  const { volunteers, cells } = await loadRoster();
+  const { volunteers, cells, blackouts } = await loadRoster();
   const shift = (await loadShifts(date, date)).find((s) => s.slot === slot);
   if (!shift) return { sent: 0, reason: 'no such shift' };
   if (shift.people.length >= 2) return { sent: 0, reason: 'shift is full' };
-  const who = candidates(shift, volunteers, cells, exclude);
+  const who = candidates(shift, volunteers, cells, blackouts, exclude);
   const status = shift.people.length === 0 ? 'nobody is on it' : `only ${shift.people.length} person is on it`;
   let sent = 0;
   for (const v of who) {
@@ -239,7 +242,7 @@ async function coverOneShift(date: string, slot: string, exclude?: string) {
 }
 
 async function weeklyDigest() {
-  const { volunteers, cells } = await loadRoster();
+  const { volunteers, cells, blackouts } = await loadRoster();
   const today = todayInNewYork();
   const from = new Date(Date.parse(today + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10);
   const to = new Date(Date.parse(today + 'T12:00:00Z') + DIGEST_DAYS * 86400000).toISOString().slice(0, 10);
@@ -251,7 +254,7 @@ async function weeklyDigest() {
   let emails = 0;
   const perShiftAsked = new Map<string, number>();
   for (const v of volunteers) {
-    const mine = gaps.filter((s) => candidates(s, [v], cells).length > 0);
+    const mine = gaps.filter((s) => candidates(s, [v], cells, blackouts).length > 0);
     if (mine.length === 0) continue;
     const section = async (title: string, list: Shift[]) => {
       if (list.length === 0) return [];

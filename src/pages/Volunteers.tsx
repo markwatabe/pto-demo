@@ -1,18 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Alert,
   Body,
   Button,
   Caption,
+  Dialog,
   Inline,
   PageHeader,
   PageShell,
   Spinner,
   Stack,
   Strong,
+  TextField,
 } from '@apygee/atoms';
 import { DataTable, type DataTableColumnDef } from '@apygee/data-table';
 import { supabase } from '../supabase';
+import { formatBlackout, parseUserDate, type Blackout } from '../volunteerInfo';
 
 type AvailabilityRow = { volunteer_id: string; weekday: number; slot: string };
 
@@ -29,7 +32,7 @@ type Volunteer = {
   notes: string | null;
 };
 
-type Row = Volunteer & { availability: string };
+type Row = Volunteer & { availability: string; blackouts: Blackout[] };
 
 const WEEKDAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu'];
 const FREQ_LABEL: Record<Volunteer['frequency'], string> = {
@@ -61,7 +64,8 @@ function availabilityLabel(rows: AvailabilityRow[]): string {
   return parts.join(' · ') || '—';
 }
 
-const COLUMNS: DataTableColumnDef<Row>[] = [
+function buildColumns(onManageBlackouts: (v: Row) => void): DataTableColumnDef<Row>[] {
+  return [
   {
     id: 'name',
     header: 'Volunteer',
@@ -113,6 +117,27 @@ const COLUMNS: DataTableColumnDef<Row>[] = [
     },
   },
   {
+    id: 'blackouts',
+    header: 'Away',
+    enableSorting: false,
+    accessorFn: (v) => v.blackouts.map(formatBlackout).join(' '),
+    size: 220,
+    cell: ({ row }) => (
+      <Stack gap="xs">
+        {row.original.blackouts.length === 0 ? (
+          <Caption>—</Caption>
+        ) : (
+          row.original.blackouts.map((b) => <Caption key={b.id}>{formatBlackout(b)}</Caption>)
+        )}
+        <span>
+          <Button variant="ghost" size="sm" onClick={() => onManageBlackouts(row.original)}>
+            {row.original.blackouts.length ? 'Edit' : 'Add dates'}
+          </Button>
+        </span>
+      </Stack>
+    ),
+  },
+  {
     id: 'grades',
     header: 'Grades',
     enableSorting: false,
@@ -128,7 +153,133 @@ const COLUMNS: DataTableColumnDef<Row>[] = [
     size: 280,
     cell: ({ row }) => <Caption>{row.original.notes ?? ''}</Caption>,
   },
-];
+  ];
+}
+
+/**
+ * Per-volunteer blackout windows: any number of inclusive date ranges they
+ * can't do at all. Dates accept 9/1/2025 or 2025-09-01; leave "To" blank for
+ * a single day.
+ */
+function BlackoutDialog({
+  volunteer,
+  onClose,
+  onChanged,
+}: {
+  volunteer: Row | null;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFrom('');
+    setTo('');
+    setNote('');
+    setFormError(null);
+  }, [volunteer?.id]);
+
+  async function add(event: FormEvent) {
+    event.preventDefault();
+    if (!volunteer) return;
+    const starts = parseUserDate(from);
+    const ends = to.trim() ? parseUserDate(to) : starts;
+    if (!starts) return setFormError('Enter a start date like 9/1/2025.');
+    if (!ends) return setFormError('Enter an end date like 9/14/2025, or leave it blank for one day.');
+    if (ends < starts) return setFormError('The end date is before the start date.');
+    setBusy(true);
+    setFormError(null);
+    const { error } = await supabase
+      .from('volunteer_blackouts')
+      .insert({ volunteer_id: volunteer.id, starts_on: starts, ends_on: ends, note: note.trim() || null });
+    setBusy(false);
+    if (error) return setFormError(error.message);
+    setFrom('');
+    setTo('');
+    setNote('');
+    await onChanged();
+  }
+
+  async function remove(id: string) {
+    setBusy(true);
+    const { error } = await supabase.from('volunteer_blackouts').delete().eq('id', id);
+    setBusy(false);
+    if (error) return setFormError(error.message);
+    await onChanged();
+  }
+
+  const sorted = [...(volunteer?.blackouts ?? [])].sort((a, b) => a.starts_on.localeCompare(b.starts_on));
+
+  return (
+    <Dialog
+      open={volunteer !== null}
+      onClose={onClose}
+      title={volunteer ? `${volunteer.name} — away dates` : ''}
+      description="Dates they can't volunteer at all. The scheduler and cover requests skip these windows."
+      footer={
+        <Button variant="ghost" onClick={onClose}>
+          Done
+        </Button>
+      }
+    >
+      <Stack gap="lg">
+        {sorted.length === 0 ? (
+          <Caption>No away dates yet.</Caption>
+        ) : (
+          <Stack gap="sm">
+            {sorted.map((b) => (
+              <Inline key={b.id} gap="sm" align="center" justify="between" wrap>
+                <Stack gap="xs">
+                  <Body>{formatBlackout(b)}</Body>
+                  {b.note ? <Caption>{b.note}</Caption> : null}
+                </Stack>
+                <Button variant="ghost" size="sm" onClick={() => remove(b.id)} disabled={busy}>
+                  Remove
+                </Button>
+              </Inline>
+            ))}
+          </Stack>
+        )}
+        <form onSubmit={add}>
+          <Stack gap="sm">
+            <Strong>Add a window</Strong>
+            <Inline gap="sm" wrap>
+              <TextField
+                label="From"
+                placeholder="9/1/2025"
+                value={from}
+                onChange={(e) => setFrom(e.currentTarget.value)}
+                required
+              />
+              <TextField
+                label="To (optional)"
+                placeholder="9/14/2025"
+                value={to}
+                onChange={(e) => setTo(e.currentTarget.value)}
+              />
+            </Inline>
+            <TextField
+              label="Note (optional)"
+              placeholder="Vacation"
+              value={note}
+              onChange={(e) => setNote(e.currentTarget.value)}
+            />
+            {formError ? <Alert tone="danger" title="Check the dates" description={formError} /> : null}
+            <span>
+              <Button type="submit" disabled={busy || !from.trim()}>
+                {busy ? 'Saving…' : 'Add'}
+              </Button>
+            </span>
+          </Stack>
+        </form>
+      </Stack>
+    </Dialog>
+  );
+}
 
 export function VolunteersPage() {
   const [filter, setFilter] = useState('');
@@ -138,18 +289,22 @@ export function VolunteersPage() {
   const [syncing, setSyncing] = useState(false);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
+  const [blackouts, setBlackouts] = useState<Blackout[]>([]);
+  const [managing, setManaging] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [volsRes, availRes] = await Promise.all([
+    const [volsRes, availRes, blackoutRes] = await Promise.all([
       supabase
         .from('volunteers')
         .select('id, email, name, veteran, grades, frequency, frequency_note, cori, backfill, notes')
         .order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
+      supabase.from('volunteer_blackouts').select('id, volunteer_id, starts_on, ends_on, note'),
     ]);
-    setError(volsRes.error ?? availRes.error);
+    setError(volsRes.error ?? availRes.error ?? blackoutRes.error);
     setVolunteers((volsRes.data ?? []) as Volunteer[]);
     setAvailability((availRes.data ?? []) as AvailabilityRow[]);
+    setBlackouts((blackoutRes.data ?? []) as Blackout[]);
     setIsLoading(false);
   }, []);
 
@@ -194,7 +349,11 @@ export function VolunteersPage() {
     }
     const q = filter.trim().toLowerCase();
     return volunteers
-      .map((v) => ({ ...v, availability: availabilityLabel(byVolunteer.get(v.id) ?? []) }))
+      .map((v) => ({
+        ...v,
+        availability: availabilityLabel(byVolunteer.get(v.id) ?? []),
+        blackouts: blackouts.filter((b) => b.volunteer_id === v.id),
+      }))
       .filter(
         (v) =>
           !q ||
@@ -203,7 +362,10 @@ export function VolunteersPage() {
             .toLowerCase()
             .includes(q),
       );
-  }, [volunteers, availability, filter]);
+  }, [volunteers, availability, blackouts, filter]);
+
+  const columns = useMemo(() => buildColumns((v) => setManaging(v.id)), []);
+  const managingRow = managing ? (rows.find((r) => r.id === managing) ?? null) : null;
 
   return (
     <PageShell width="xl">
@@ -232,7 +394,7 @@ export function VolunteersPage() {
         ) : (
           <DataTable<Row>
             data={rows}
-            columns={COLUMNS}
+            columns={columns}
             ariaLabel="Volunteer roster"
             getRowId={(v) => v.id}
             density="comfortable"
@@ -243,6 +405,8 @@ export function VolunteersPage() {
             emptyState="No volunteers match your search."
           />
         )}
+
+        <BlackoutDialog volunteer={managingRow} onClose={() => setManaging(null)} onChanged={load} />
       </Stack>
     </PageShell>
   );

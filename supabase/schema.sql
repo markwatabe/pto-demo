@@ -329,3 +329,46 @@ create table shift_declines (
 );
 create index shift_declines_date_idx on shift_declines (date);
 alter table shift_declines enable row level security;
+
+-- Dates a volunteer can't do at all (vacations etc.): any number of inclusive
+-- [starts_on, ends_on] windows per person. The scheduler and cover requests
+-- skip them; admins manage them on the Volunteers page.
+create table volunteer_blackouts (
+  id uuid primary key default gen_random_uuid(),
+  volunteer_id uuid not null references volunteers (id) on delete cascade,
+  starts_on date not null,
+  ends_on date not null check (ends_on >= starts_on),
+  note text,
+  created_at timestamptz not null default now()
+);
+create index volunteer_blackouts_volunteer_idx on volunteer_blackouts (volunteer_id);
+alter table volunteer_blackouts enable row level security;
+
+create policy "approved can read" on volunteer_blackouts
+  for select to authenticated using (public.is_approved());
+create policy "admin or owner can insert" on volunteer_blackouts
+  for insert to authenticated
+  with check (public.is_admin() or exists (
+    select 1 from volunteers v
+    where v.id = volunteer_id
+      and lower(v.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  ));
+create policy "admin or owner can update" on volunteer_blackouts
+  for update to authenticated
+  using (public.is_admin() or exists (
+    select 1 from volunteers v
+    where v.id = volunteer_id
+      and lower(v.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  ))
+  with check (public.is_admin() or exists (
+    select 1 from volunteers v
+    where v.id = volunteer_id
+      and lower(v.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  ));
+create policy "admin or owner can delete" on volunteer_blackouts
+  for delete to authenticated
+  using (public.is_admin() or exists (
+    select 1 from volunteers v
+    where v.id = volunteer_id
+      and lower(v.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
+  ));

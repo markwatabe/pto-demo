@@ -19,6 +19,7 @@ import {
 import { supabase } from '../supabase';
 import {
   buildDraft,
+  isBlackedOut,
   isSchoolDay,
   isoDate,
   SLOT_LABEL,
@@ -27,6 +28,7 @@ import {
   weekdayOf,
   type AssignmentRow,
   type AvailabilityRow,
+  type BlackoutRow,
   type DraftPlan,
   type Frequency,
   type RosterVolunteer,
@@ -88,6 +90,7 @@ export function SchedulePage() {
   const [dayShifts, setDayShifts] = useState<DayShift[] | null>(null);
   const [roster, setRoster] = useState<RosterDetail[]>([]);
   const [dayAvailability, setDayAvailability] = useState<AvailabilityRow[]>([]);
+  const [dayBlackouts, setDayBlackouts] = useState<BlackoutRow[]>([]);
   const [dayBusy, setDayBusy] = useState<string | null>(null);
 
   const loadBase = useCallback(async () => {
@@ -225,7 +228,7 @@ export function SchedulePage() {
       new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate() - (TRAILING_WINDOW_DAYS - 1)),
     );
 
-    const [shiftsRes, availabilityRes, volunteersRes, closuresRes] = await Promise.all([
+    const [shiftsRes, availabilityRes, volunteersRes, closuresRes, blackoutsRes] = await Promise.all([
       supabase
         .from('green_team_shifts')
         .select('id, date, slot')
@@ -234,9 +237,14 @@ export function SchedulePage() {
       supabase.from('availability').select('volunteer_id, weekday, slot'),
       supabase.from('volunteers').select('id, name, frequency, backfill, veteran'),
       supabase.from('school_closures').select('date, reason'),
+      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
     ]);
     const fetchError =
-      shiftsRes.error ?? availabilityRes.error ?? volunteersRes.error ?? closuresRes.error;
+      shiftsRes.error ??
+      availabilityRes.error ??
+      volunteersRes.error ??
+      closuresRes.error ??
+      blackoutsRes.error;
     if (fetchError) {
       setGenerating(false);
       setError(fetchError.message);
@@ -265,6 +273,7 @@ export function SchedulePage() {
       existingShifts,
       existingAssignments,
       availability: (availabilityRes.data ?? []) as AvailabilityRow[],
+      blackouts: (blackoutsRes.data ?? []) as BlackoutRow[],
       volunteers: (volunteersRes.data ?? []) as RosterVolunteer[],
       newId: () => crypto.randomUUID(),
     });
@@ -316,15 +325,16 @@ export function SchedulePage() {
     setError(null);
     // Full-week availability: candidate filtering uses the day's weekday,
     // the hover tooltip shows the whole week.
-    const [shiftsRes, rosterRes, availRes] = await Promise.all([
+    const [shiftsRes, rosterRes, availRes, blackoutRes] = await Promise.all([
       supabase
         .from('green_team_shifts')
         .select('id, date, slot, assignments:shift_volunteers ( volunteer_id, status, volunteer:volunteers ( id, name ) )')
         .eq('date', dayDate),
       supabase.from('volunteers').select(ROSTER_DETAIL_SELECT).order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
+      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
     ]);
-    const loadError = shiftsRes.error ?? rosterRes.error ?? availRes.error;
+    const loadError = shiftsRes.error ?? rosterRes.error ?? availRes.error ?? blackoutRes.error;
     if (loadError) {
       setError(loadError.message);
       return;
@@ -335,6 +345,7 @@ export function SchedulePage() {
     setDayShifts(shifts);
     setRoster((rosterRes.data ?? []) as RosterDetail[]);
     setDayAvailability((availRes.data ?? []) as AvailabilityRow[]);
+    setDayBlackouts((blackoutRes.data ?? []) as BlackoutRow[]);
   }, [dayDate]);
 
   async function addToShift(shift: DayShift, volunteerId: string) {
@@ -399,6 +410,8 @@ export function SchedulePage() {
     const others: RosterDetail[] = [];
     for (const v of roster) {
       if (assigned.has(v.id)) continue;
+      // Away that day — not offered at all.
+      if (isBlackedOut(v.id, shift.date, dayBlackouts)) continue;
       if (availableIds.has(v.id)) available.push(v);
       else if (v.backfill) backfill.push(v);
       else others.push(v);
@@ -406,7 +419,7 @@ export function SchedulePage() {
     return { available, backfill, others };
   }
 
-  const volunteerTooltip = (v: RosterDetail) => volunteerTooltipLines(v, dayAvailability);
+  const volunteerTooltip = (v: RosterDetail) => volunteerTooltipLines(v, dayAvailability, dayBlackouts);
 
   // Tooltip-wrapped anchor for a volunteer; plain anchor if unknown.
   function withVolunteerTooltip(id: string, anchor: ReactElement): ReactElement {
