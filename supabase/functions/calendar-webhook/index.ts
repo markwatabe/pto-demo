@@ -139,10 +139,14 @@ type InviteKind = 'early' | 'late' | 'both shifts';
 const slotsForKind = (kind: InviteKind): string[] => (kind === 'both shifts' ? ['early', 'late'] : [kind]);
 
 /** Body of a per-person invite event: "{name}: Fiske Green Team ({kind})" with the volunteer as guest. */
+// Google Calendar event colors: 5 Banana (yellow), 8 Graphite (gray), 10 Basil (green).
+const KIND_COLOR: Record<InviteKind, string> = { early: '5', late: '8', 'both shifts': '10' };
+
 function inviteEventBody(v: { id: string; name: string; email: string }, date: string, kind: InviteKind) {
   const slots = slotsForKind(kind);
   return {
     summary: `${v.name}: Fiske Green Team (${kind})`,
+    colorId: KIND_COLOR[kind],
     description: `Your Green Team lunch shift at Fiske.\n\nCan't make it? Decline this invitation, or open ${SITE}/fiske-schedule and tap "Can't make it" on this shift.`,
     start: { dateTime: `${date}T${SLOT_TIMES[slots[0]!]!.start}:00`, timeZone: TZ },
     end: { dateTime: `${date}T${SLOT_TIMES[slots[slots.length - 1]!]!.end}:00`, timeZone: TZ },

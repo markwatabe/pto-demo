@@ -44,9 +44,13 @@ function nextWeekSchoolDays(closures: ReadonlySet<string>): string[] {
     .filter((d) => isSchoolDay(d, closures));
 }
 
+// Google Calendar event colors: 5 Banana (yellow), 8 Graphite (gray), 10 Basil (green).
+const KIND_COLOR: Record<Kind, string> = { early: '5', late: '8', 'both shifts': '10' };
+
 type Event = {
   ptoKey: string;
   summary: string;
+  colorId: string;
   description: string;
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
@@ -57,6 +61,7 @@ function eventFor(name: string, date: string, kind: Kind, volunteerId: string): 
   return {
     ptoKey: `${volunteerId}|${date}|${kind}`,
     summary: `${name}: Fiske Green Team (${kind})`,
+    colorId: KIND_COLOR[kind],
     description: `Your Green Team lunch shift at Fiske.\n\nCan't make it? Open ${SCHEDULE_URL} and tap "Can't make it" on this shift, or reply to this invitation.`,
     start: { dateTime: `${date}T${SLOT_TIMES[slots[0]!].start}:00`, timeZone: TZ },
     end: { dateTime: `${date}T${SLOT_TIMES[slots[slots.length - 1]!].end}:00`, timeZone: TZ },
@@ -173,6 +178,7 @@ async function main() {
     const ev = eventFor(vol.name, date, kind, vol.id);
     const body = {
       summary: ev.summary,
+      colorId: ev.colorId,
       description: ev.description,
       start: ev.start,
       end: ev.end,
