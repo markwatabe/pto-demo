@@ -13,7 +13,7 @@ export type RosterDetail = RosterVolunteer & {
 
 /** The volunteers select list matching RosterDetail. */
 export const ROSTER_DETAIL_SELECT =
-  'id, name, frequency, backfill, veteran, grades, frequency_note, notes';
+  'id, name, frequency, backfill, veteran, alternate, grades, frequency_note, notes';
 
 export const FREQ_LABEL: Record<Frequency, string> = {
   weekly: '1×/week',
@@ -99,7 +99,7 @@ export function volunteerTooltipLines(
     (v.frequency === 'custom' && v.frequency_note ? ` (${v.frequency_note})` : '');
   return [
     `Avail: ${avail || 'none listed'}`,
-    `Freq: ${freq}${v.backfill ? ' · backfill' : ''}`,
+    `Freq: ${freq}${v.backfill ? ' · backfill' : ''}${v.alternate ? ' · alternates E/L' : ''}`,
     v.veteran ? 'Veteran — can take a shift alone' : 'New — pair with a veteran',
     away.length ? `Away: ${away.join(' · ')}` : '',
     v.grades ? `Grades: ${v.grades}` : '',

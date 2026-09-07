@@ -95,6 +95,9 @@ create table volunteers (
   frequency_note text,
   cori text not null default 'unsure' check (cori in ('yes', 'no', 'unsure')),
   backfill boolean not null default false,
+  -- Wants consecutive shifts to alternate early/late (only enforced when
+  -- their availability includes both slots).
+  alternate boolean not null default false,
   notes text
 );
 

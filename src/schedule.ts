@@ -27,6 +27,8 @@ export type RosterVolunteer = {
   backfill: boolean;
   /** Veterans may take a shift alone; new volunteers must pair with one. */
   veteran: boolean;
+  /** Consecutive shifts must alternate early/late (when both slots are in their availability). */
+  alternate?: boolean;
 };
 
 export type AvailabilityRow = { volunteer_id: string; weekday: number; slot: Slot };
@@ -126,9 +128,10 @@ export type DraftPlan = {
  * Build a draft schedule for [from, to]. Priorities, in order:
  *
  *  1. Respect every volunteer's rules: only their availability cells, never
- *     inside one of their blackout windows, and never two shifts closer
+ *     inside one of their blackout windows, never two shifts closer
  *     together than their cadence (weekly = 1 week apart, biweekly = 2,
- *     monthly/custom = 4).
+ *     monthly/custom = 4), and for "alternate" volunteers never the same
+ *     slot as the shift before or after.
  *  0. Fixed shifts: anyone with a standing weekday/slot rule is placed on
  *     every such school day first (still skipping their blackouts).
  *  2. Fill every shift with at least one person. Only veterans may hold a
@@ -202,6 +205,7 @@ export function buildDraft(args: {
 
   const shiftAssignees = new Map<string, Set<string>>();
   const weeksByVolunteer = new Map<string, number[]>();
+  const takenByVolunteer = new Map<string, { date: string; slot: Slot }[]>();
   const inRangeCount = new Map<string, number>();
   const record = (volunteerId: string, shift: ShiftRow) => {
     let set = shiftAssignees.get(shift.id);
@@ -213,6 +217,9 @@ export function buildDraft(args: {
     const weeks = weeksByVolunteer.get(volunteerId) ?? [];
     weeks.push(weekOf(shift.date));
     weeksByVolunteer.set(volunteerId, weeks);
+    const taken = takenByVolunteer.get(volunteerId) ?? [];
+    taken.push({ date: shift.date, slot: shift.slot });
+    takenByVolunteer.set(volunteerId, taken);
     if (shift.date >= from && shift.date <= to) {
       inRangeCount.set(volunteerId, (inRangeCount.get(volunteerId) ?? 0) + 1);
     }
@@ -228,13 +235,42 @@ export function buildDraft(args: {
   const hasVeteran = (shiftId: string): boolean =>
     [...(shiftAssignees.get(shiftId) ?? [])].some((id) => volunteersById.get(id)?.veteran);
 
+  // Alternation applies only to people who can actually do both slots.
+  const canAlternate = (volunteer: RosterVolunteer): boolean => {
+    if (!volunteer.alternate) return false;
+    const cells = cellsByVolunteer.get(volunteer.id);
+    if (!cells) return false;
+    let early = false;
+    let late = false;
+    for (const c of cells) {
+      if (c.endsWith('|early')) early = true;
+      if (c.endsWith('|late')) late = true;
+    }
+    return early && late;
+  };
+  // The slot they'd need next to this date: the opposite of the nearest
+  // assignment before AND after it. Null when nothing constrains it.
+  const alternationClash = (volunteer: RosterVolunteer, shift: ShiftRow): boolean => {
+    if (!canAlternate(volunteer)) return false;
+    const taken = takenByVolunteer.get(volunteer.id) ?? [];
+    let before: { date: string; slot: Slot } | undefined;
+    let after: { date: string; slot: Slot } | undefined;
+    for (const t of taken) {
+      if (t.date < shift.date && (!before || t.date > before.date)) before = t;
+      if (t.date > shift.date && (!after || t.date < after.date)) after = t;
+    }
+    return before?.slot === shift.slot || after?.slot === shift.slot;
+  };
+
   // Rule check: the cell is in their availability, the date isn't blacked
-  // out, and no other assignment of theirs sits within `interval` weeks.
+  // out, no other assignment of theirs sits within `interval` weeks, and
+  // an alternating volunteer isn't repeating the slot of a neighbour.
   const canTake = (volunteer: RosterVolunteer, shift: ShiftRow): boolean => {
     if (!cellsByVolunteer.get(volunteer.id)?.has(`${weekdayOf(shift.date)}|${shift.slot}`)) {
       return false;
     }
     if (isBlackedOut(volunteer.id, shift.date, blackouts)) return false;
+    if (alternationClash(volunteer, shift)) return false;
     if (shiftAssignees.get(shift.id)?.has(volunteer.id)) return false;
     const interval = intervalWeeksFor(volunteer.frequency);
     const week = weekOf(shift.date);

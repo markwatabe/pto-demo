@@ -43,7 +43,7 @@ async function main() {
   const [shiftsRes, closuresRes, volunteersRes, availabilityRes, blackoutsRes, fixedRes] = await Promise.all([
     db.from('green_team_shifts').select('id, date, slot'),
     db.from('school_closures').select('date'),
-    db.from('volunteers').select('id, name, frequency, backfill, veteran'),
+    db.from('volunteers').select('id, name, frequency, backfill, veteran, alternate'),
     db.from('availability').select('volunteer_id, weekday, slot'),
     db.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
     db.from('volunteer_fixed_shifts').select('volunteer_id, weekday, slot'),

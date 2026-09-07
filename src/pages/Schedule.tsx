@@ -236,7 +236,7 @@ export function SchedulePage() {
         .gte('date', windowStartIso)
         .lte('date', to),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
-      supabase.from('volunteers').select('id, name, frequency, backfill, veteran'),
+      supabase.from('volunteers').select('id, name, frequency, backfill, veteran, alternate'),
       supabase.from('school_closures').select('date, reason'),
       supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
       supabase.from('volunteer_fixed_shifts').select('volunteer_id, weekday, slot'),

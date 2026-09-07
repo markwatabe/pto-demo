@@ -176,6 +176,30 @@ test('rule 1: blackout windows are never scheduled, cadence resumes after', () =
   assert.equal(isBlackedOut('b', '2026-09-21', blackouts), false);
 });
 
+test('alternate: consecutive shifts flip early/late', () => {
+  const plan = draft({
+    to: EIGHT_WEEKS,
+    volunteers: [vol('a', { frequency: 'weekly', alternate: true })],
+    availability: cells('a', ALL_CELLS),
+  });
+  const shiftById = new Map(plan.shiftInserts.map((s) => [s.id, s]));
+  const slots = plan.assignmentInserts
+    .map((x) => shiftById.get(x.shift_id)!)
+    .sort((p, q) => p.date.localeCompare(q.date))
+    .map((s) => s.slot);
+  assert.equal(slots.length, 8);
+  for (let i = 1; i < slots.length; i++) assert.notEqual(slots[i], slots[i - 1]);
+});
+
+test('alternate is ignored for someone who only ever does one slot', () => {
+  const plan = draft({
+    to: EIGHT_WEEKS,
+    volunteers: [vol('a', { frequency: 'weekly', alternate: true })],
+    availability: cells('a', [[1, 'late'], [3, 'late']]),
+  });
+  assert.equal(plan.assignmentInserts.length, 8);
+});
+
 test('weekday-limited blackout blocks only that weekday', () => {
   const blackouts: BlackoutRow[] = [{ volunteer_id: 'a', starts_on: '2026-09-01', ends_on: '2026-12-31', weekday: 2 }];
   assert.equal(isBlackedOut('a', '2026-09-08', blackouts), true); // Tuesday

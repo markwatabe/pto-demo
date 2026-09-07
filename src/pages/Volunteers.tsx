@@ -31,6 +31,7 @@ type Volunteer = {
   frequency_note: string | null;
   cori: 'yes' | 'no' | 'unsure';
   backfill: boolean;
+  alternate: boolean;
   notes: string | null;
 };
 
@@ -120,12 +121,13 @@ function buildColumns(onManageBlackouts: (v: Row) => void): DataTableColumnDef<R
     header: 'Flags',
     enableSorting: false,
     accessorFn: (v) =>
-      [v.backfill ? 'backfill' : '', v.veteran ? 'veteran' : '', `cori-${v.cori}`].join(' '),
+      [v.backfill ? 'backfill' : '', v.veteran ? 'veteran' : '', v.alternate ? 'alternate' : '', `cori-${v.cori}`].join(' '),
     size: 160,
     cell: ({ row }) => {
       const flags = [
         row.original.backfill ? 'Backfill' : null,
         row.original.veteran ? 'Veteran' : null,
+        row.original.alternate ? 'Alternates E/L' : null,
         row.original.cori === 'yes' ? 'CORI ✓' : row.original.cori === 'no' ? 'CORI ✗' : 'CORI ?',
       ].filter(Boolean);
       return <Caption>{flags.join(' · ')}</Caption>;
@@ -345,7 +347,7 @@ export function VolunteersPage() {
     const [volsRes, availRes, blackoutRes, fixedRes] = await Promise.all([
       supabase
         .from('volunteers')
-        .select('id, email, name, veteran, grades, frequency, frequency_note, cori, backfill, notes')
+        .select('id, email, name, veteran, grades, frequency, frequency_note, cori, backfill, alternate, notes')
         .order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
       supabase.from('volunteer_blackouts').select('id, volunteer_id, starts_on, ends_on, weekday, note'),
