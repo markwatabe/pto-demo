@@ -341,12 +341,15 @@ export function buildDraft(args: {
     }
   }
 
-  // Pass 0b — alternators, chronologically at their cadence. A week with no
-  // usable shift slides the cadence by one week rather than dropping a turn.
+  // Alternators, chronologically at their cadence. A week with no usable
+  // shift slides the cadence by one week rather than dropping a turn.
+  // Veterans go before pass 1; new volunteers after it, once every shift
+  // has a veteran they can join.
   const maxWeek = weeksInRange - 1;
   const dayWeek = new Map(days.map((d) => [d, weekOf(d)]));
+  const placeAlternators = (veteransOnly: boolean) => {
   for (const volunteer of [...args.volunteers].sort(byNeed)) {
-    if (!canAlternate(volunteer)) continue;
+    if (!canAlternate(volunteer) || volunteer.veteran !== veteransOnly) continue;
     const interval = intervalWeeksFor(volunteer.frequency);
     const taken = takenByVolunteer.get(volunteer.id) ?? [];
     const last = taken.reduce<{ date: string; slot: Slot } | undefined>(
@@ -371,12 +374,15 @@ export function buildDraft(args: {
       }
     }
   }
+  };
+  placeAlternators(true);
 
   // Pass 1 — cover every empty shift with one veteran.
   fillPass(
     (shift) => size(shift) === 0,
     () => veterans,
   );
+  placeAlternators(false);
   // Pass 2 — double up. New volunteers may only join a veteran.
   fillPass(
     (shift) => size(shift) === 1,
