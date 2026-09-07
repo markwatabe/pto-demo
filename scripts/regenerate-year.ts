@@ -4,7 +4,11 @@
  * only assignments are replaced. Attendance history is lost — run this only
  * when a fresh year is wanted.
  *
- * Usage:  pnpm tsx scripts/regenerate-year.ts
+ * Usage:  pnpm tsx scripts/regenerate-year.ts [--flexible-only-through YYYY-MM-DD]
+ *
+ * --flexible-only-through: up to and including that date, only volunteers
+ * who said they have a flexible schedule (volunteers.backfill) are placed —
+ * for a start-of-year run when invites go out at short notice.
  */
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
@@ -25,6 +29,12 @@ if (!url) throw new Error('Missing VITE_SUPABASE_URL in .env');
 if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY in .env');
 
 const db = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+const flexIdx = process.argv.indexOf('--flexible-only-through');
+const flexibleOnlyThrough = flexIdx === -1 ? undefined : process.argv[flexIdx + 1];
+if (flexibleOnlyThrough && !/^\d{4}-\d{2}-\d{2}$/.test(flexibleOnlyThrough)) {
+  throw new Error('--flexible-only-through expects YYYY-MM-DD');
+}
 
 async function chunkedInsert(table: string, rows: Record<string, unknown>[]) {
   for (let i = 0; i < rows.length; i += 200) {
@@ -77,6 +87,9 @@ async function main() {
     blackouts: (blackoutsRes.data ?? []) as BlackoutRow[],
     fixedShifts: (fixedRes.data ?? []) as FixedShiftRow[],
     volunteers: (volunteersRes.data ?? []) as RosterVolunteer[],
+    eligible: flexibleOnlyThrough
+      ? (v, date) => date > flexibleOnlyThrough || v.backfill
+      : undefined,
     newId: () => randomUUID(),
   });
 
