@@ -243,9 +243,8 @@ export function FiskeSchedulePage() {
       return;
     }
     setDeclineKey(null);
-    setNotice(
-      `Thanks — the coordinator has been told you can't make ${dayLabel(date)} (${SLOT_NAME[slot]}). You're still listed until they find cover.`,
-    );
+    setNotice(`Thanks — you're off ${dayLabel(date)} (${SLOT_NAME[slot]}) and the coordinator has been told.`);
+    await load(email);
   }
 
   function saveEmail(event: FormEvent) {
@@ -312,7 +311,7 @@ export function FiskeSchedulePage() {
         />
 
         {error ? <Alert tone="danger" title="Something went wrong" description={error} /> : null}
-        {notice ? <Alert tone="success" title="Message sent" description={notice} /> : null}
+        {notice ? <Alert tone="success" title="Done" description={notice} /> : null}
 
         {isLoading || days === null ? (
           <Stack gap="md" align="center">

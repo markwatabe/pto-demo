@@ -1,19 +1,20 @@
-// A roster volunteer taps "Can't make it" on one of their own shifts in the
-// public /fiske-schedule view (no login — identified by roster email). Same
-// handling as a calendar decline (see calendar-webhook): they come off the
-// shift, their invite is cancelled, the coordinator is emailed, and if the
-// shift is within URGENT_DAYS volunteers who could cover are emailed.
+// Keeps one Google Calendar invite per volunteer per day on the Green Team
+// calendar in step with the schedule: "{name}: Fiske Green Team ({early|
+// late|both shifts})" with the volunteer as guest. Creates, updates and
+// cancels (sendUpdates=all) for every assignment from today onward.
+//
+// DRY RUN unless body.confirm === true — creating invites emails every
+// volunteer, so the first run for a real roster is deliberate.
+// Auth: admin JWT (like sync-google-calendar) or x-cron-secret.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
-
-const URGENT_DAYS = 7;
 
 // ---- Google auth + mail helpers (duplicated per function; functions are standalone) ----
 function pemToArrayBuffer(pem: string): ArrayBuffer {
@@ -149,108 +150,93 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
 }
 // ---- end helpers ----
 
-type GoogleEvent = { id: string; extendedProperties?: { private?: Record<string, string> } };
+type GoogleEvent = {
+  id: string;
+  summary?: string;
+  start?: { dateTime?: string };
+  end?: { dateTime?: string };
+  attendees?: { email?: string; responseStatus?: string }[];
+  extendedProperties?: { private?: Record<string, string> };
+};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed.' });
   try {
-    const body = (await req.json().catch(() => ({}))) as { email?: string; date?: string; slot?: string };
-    const email = (body.email ?? '').trim().toLowerCase();
-    const date = body.date ?? '';
-    const slot = body.slot ?? '';
-    if (!email.includes('@')) return json(400, { error: 'A valid email is required.' });
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { error: 'Invalid date.' });
-    if (slot !== 'early' && slot !== 'late') return json(400, { error: 'Invalid slot.' });
-    if (date < todayInNewYork()) return json(400, { error: 'That shift is in the past.' });
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const db = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-    const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const { data: volunteer } = await db.from('volunteers').select('id, name').eq('email', email).maybeSingle();
-    if (!volunteer) return json(403, { error: 'This email is not on the volunteer roster — check with the coordinator.' });
-
-    const { data: shift } = await db
-      .from('green_team_shifts')
-      .select('id, assignments:shift_volunteers ( volunteer:volunteers ( id, name ) )')
-      .eq('date', date)
-      .eq('slot', slot)
-      .maybeSingle();
-    type Assignment = { volunteer: { id: string; name: string } | null };
-    const assignees = ((shift?.assignments ?? []) as unknown as Assignment[]).map((a) => a.volunteer).filter(Boolean) as { id: string; name: string }[];
-    if (!shift || !assignees.some((v) => v.id === volunteer.id)) return json(409, { error: "You're not on this shift." });
-    const others = assignees.filter((v) => v.id !== volunteer.id).map((v) => v.name);
-
-    // 1. Off the shift.
-    const { error: delError } = await db.from('shift_volunteers').delete().eq('shift_id', shift.id).eq('volunteer_id', volunteer.id);
-    if (delError) return json(500, { error: delError.message });
-
-    // 2. Cancel (or shrink) their calendar invite for that day, quietly.
-    try {
-      const token = await googleAccessToken(MAIL_FROM, 'https://www.googleapis.com/auth/calendar');
-      const params = new URLSearchParams({ maxResults: '50' });
-      params.append('privateExtendedProperty', `managedBy=${INVITE_MARKER}`);
-      params.append('privateExtendedProperty', `email=${email}`);
-      const list = await gfetch<{ items?: GoogleEvent[] }>(token, `${calendarBase()}?${params}`);
-      for (const ev of list.items ?? []) {
-        const [vid, d, kind] = (ev.extendedProperties?.private?.ptoKey ?? '').split('|');
-        if (vid !== volunteer.id || d !== date) continue;
-        if (kind === 'both shifts') {
-          // They keep the other half of the day.
-          const remaining = (slot === 'early' ? 'late' : 'early') as InviteKind;
-          await gfetch(token, `${calendarBase()}/${ev.id}?sendUpdates=all`, {
-            method: 'PATCH',
-            body: JSON.stringify(inviteEventBody({ id: volunteer.id, name: volunteer.name, email }, date, remaining)),
-          });
-        } else {
-          await gfetch(token, `${calendarBase()}/${ev.id}?sendUpdates=none`, { method: 'DELETE' });
-        }
-      }
-    } catch (e) {
-      console.error('invite cleanup failed', e);
-    }
-
-    // 3. Urgent → ask people who could cover.
-    const urgent = daysUntil(date) <= URGENT_DAYS;
-    let coverSent = 0;
-    if (urgent) {
-      const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/cover-requests`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-cron-secret': Deno.env.get('CRON_SECRET') ?? '' },
-        body: JSON.stringify({ action: 'shift', date, slot, exclude: email }),
+    // Auth: cron secret, or a signed-in admin.
+    if (req.headers.get('x-cron-secret') !== Deno.env.get('CRON_SECRET')) {
+      const userClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
+        global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
       });
-      coverSent = Number(((await res.json().catch(() => ({}))) as { sent?: number }).sent ?? 0);
+      const { data: userData } = await userClient.auth.getUser();
+      if (!userData?.user) return json(401, { error: 'Not signed in.' });
+      const { data: adminRow } = await db.from('admins').select('user_id').eq('user_id', userData.user.id).maybeSingle();
+      if (!adminRow) return json(403, { error: 'Admins only.' });
+    }
+    const body = (await req.json().catch(() => ({}))) as { confirm?: boolean; email?: string };
+    const confirm = body.confirm === true;
+    const onlyEmail = body.email?.toLowerCase();
+
+    // Desired: one event per volunteer per day, from today onward.
+    const today = todayInNewYork();
+    const { data: rows, error } = await db
+      .from('shift_volunteers')
+      .select('shift:green_team_shifts ( date, slot ), volunteer:volunteers ( id, name, email )')
+      .gte('shift.date', today);
+    if (error) throw new Error(error.message);
+    type Row = { shift: { date: string; slot: string } | null; volunteer: { id: string; name: string; email: string } | null };
+    const byPerson = new Map<string, { v: { id: string; name: string; email: string }; date: string; slots: Set<string> }>();
+    for (const r of (rows ?? []) as unknown as Row[]) {
+      if (!r.shift || !r.volunteer) continue;
+      if (onlyEmail && r.volunteer.email.toLowerCase() !== onlyEmail) continue;
+      const k = `${r.volunteer.id}|${r.shift.date}`;
+      const e = byPerson.get(k) ?? { v: r.volunteer, date: r.shift.date, slots: new Set<string>() };
+      e.slots.add(r.shift.slot);
+      byPerson.set(k, e);
+    }
+    const desired = new Map<string, ReturnType<typeof inviteEventBody>>();
+    for (const { v, date, slots } of byPerson.values()) {
+      const kind: InviteKind = slots.size === 2 ? 'both shifts' : slots.has('early') ? 'early' : 'late';
+      desired.set(`${v.id}|${date}|${kind}`, inviteEventBody(v, date, kind));
     }
 
-    await db.from('shift_declines').insert({
-      volunteer_id: volunteer.id,
-      volunteer_email: email,
-      volunteer_name: volunteer.name,
-      date,
-      slot,
-      source: 'app',
-      handling: urgent ? 'urgent-cover-request' : 'deferred-to-weekly',
-      cover_emails_sent: coverSent,
-    });
+    // Existing invite events (all, so stale ones get cancelled).
+    const token = await googleAccessToken(MAIL_FROM, 'https://www.googleapis.com/auth/calendar');
+    const existing = new Map<string, GoogleEvent>();
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({ privateExtendedProperty: `managedBy=${INVITE_MARKER}`, maxResults: '2500', showDeleted: 'false' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const pageData = await gfetch<{ items?: GoogleEvent[]; nextPageToken?: string }>(token, `${calendarBase()}?${params}`);
+      for (const ev of pageData.items ?? []) {
+        const key = ev.extendedProperties?.private?.ptoKey;
+        if (!key) continue;
+        if (onlyEmail && (ev.extendedProperties?.private?.email ?? '').toLowerCase() !== onlyEmail) continue;
+        existing.set(key, ev);
+      }
+      pageToken = pageData.nextPageToken;
+    } while (pageToken);
 
-    // 4. Coordinator FYI.
-    await sendMail({
-      to: COORDINATOR,
-      replyTo: email,
-      subject: `Can't make it: ${volunteer.name} — ${shortDate(date)} ${slot} shift`,
-      text: [
-        `${volunteer.name} (${email}) tapped "Can't make it" and has been taken off the shift.`,
-        '',
-        `• ${shortDate(date)} — ${SLOT_LABEL[slot]}: now ${others.length ? others.join(', ') : 'NOBODY'}` +
-          (urgent ? ` (cover request sent to ${coverSent} volunteer${coverSent === 1 ? '' : 's'})` : ''),
-        '',
-        urgent
-          ? `This is within ${URGENT_DAYS} days, so volunteers who are available have been asked to cover.`
-          : 'This is more than a week out — the Sunday-night gap check will handle it.',
-        '',
-        `Schedule: ${SITE}/admin/schedule`,
-      ].join('\n'),
-    });
+    const same = (g: GoogleEvent, d: ReturnType<typeof inviteEventBody>) =>
+      g.summary === d.summary &&
+      Boolean(g.start?.dateTime?.startsWith(d.start.dateTime)) &&
+      Boolean(g.end?.dateTime?.startsWith(d.end.dateTime));
 
-    return json(200, { ok: true, removed: true, coverSent });
+    const toCreate = [...desired].filter(([k]) => !existing.has(k));
+    const toUpdate = [...desired].filter(([k, d]) => existing.has(k) && !same(existing.get(k)!, d));
+    // Only cancel future events; past ones are history. Declined ones the webhook already handles.
+    const toDelete = [...existing].filter(([k, g]) => !desired.has(k) && (g.start?.dateTime ?? '') >= today);
+
+    const plan = { create: toCreate.length, update: toUpdate.length, cancel: toDelete.length, volunteers: byPerson.size };
+    if (!confirm) return json(200, { dryRun: true, ...plan, hint: 'POST {"confirm":true} to send.' });
+
+    for (const [, d] of toCreate) await gfetch(token, `${calendarBase()}?sendUpdates=all`, { method: 'POST', body: JSON.stringify(d) });
+    for (const [k, d] of toUpdate) await gfetch(token, `${calendarBase()}/${existing.get(k)!.id}?sendUpdates=all`, { method: 'PATCH', body: JSON.stringify(d) });
+    for (const [, g] of toDelete) await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=all`, { method: 'DELETE' }).catch(() => {});
+    return json(200, { dryRun: false, ...plan });
   } catch (err) {
     console.error(err);
     return json(500, { error: err instanceof Error ? err.message : String(err) });

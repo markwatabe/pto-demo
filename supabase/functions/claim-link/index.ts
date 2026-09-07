@@ -1,19 +1,9 @@
-// A roster volunteer taps "Can't make it" on one of their own shifts in the
-// public /fiske-schedule view (no login — identified by roster email). Same
-// handling as a calendar decline (see calendar-webhook): they come off the
-// shift, their invite is cancelled, the coordinator is emailed, and if the
-// shift is within URGENT_DAYS volunteers who could cover are emailed.
-import { createClient } from 'npm:@supabase/supabase-js@2';
-
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
-
-const URGENT_DAYS = 7;
+// One-click "I'll take it" links from cover-request emails. The link carries
+// an HMAC-signed {email, date, slot, expiry}; on GET we claim the shift via
+// claim-shift (same rules as the app: roster email, school day, capacity,
+// veteran pairing), send the volunteer a per-person calendar invite, and
+// render a small confirmation page. No login.
+const CLAIM_SECRET = Deno.env.get('CLAIM_LINK_SECRET') ?? '';
 
 // ---- Google auth + mail helpers (duplicated per function; functions are standalone) ----
 function pemToArrayBuffer(pem: string): ArrayBuffer {
@@ -149,110 +139,71 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
 }
 // ---- end helpers ----
 
-type GoogleEvent = { id: string; extendedProperties?: { private?: Record<string, string> } };
+function page(title: string, body: string, ok: boolean): Response {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#f6f7f4;margin:0;padding:24px;color:#1f2a1f}main{max-width:28rem;margin:8vh auto;background:#fff;border-radius:16px;padding:28px;box-shadow:0 2px 12px rgba(0,0,0,.06)}h1{font-size:1.35rem;margin:0 0 12px;color:${ok ? '#2f6b3a' : '#8a3b2f'}}p{line-height:1.5;margin:0 0 12px}a{color:#2f6b3a}</style></head>
+<body><main><h1>${title}</h1>${body}<p style="margin-top:20px"><a href="${SITE}/fiske-schedule">Open the schedule</a></p></main></body></html>`;
+  return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+async function verifyToken(t: string): Promise<{ e: string; d: string; s: string; x: number } | null> {
+  const [payload, sig] = t.split('.');
+  if (!payload || !sig || !CLAIM_SECRET) return null;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(CLAIM_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const expected = b64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)));
+  if (expected !== sig) return null;
+  try {
+    const pad = payload + '='.repeat((4 - (payload.length % 4)) % 4);
+    const data = JSON.parse(atob(pad.replace(/-/g, '+').replace(/_/g, '/')));
+    if (typeof data.e !== 'string' || typeof data.d !== 'string' || typeof data.s !== 'string') return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
-  if (req.method !== 'POST') return json(405, { error: 'Method not allowed.' });
+  if (req.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+  const t = new URL(req.url).searchParams.get('t') ?? '';
+  const claim = await verifyToken(t);
+  if (!claim) return page("This link isn't valid", '<p>It may have been copied incompletely. Open the schedule and claim the shift there instead.</p>', false);
+  if (claim.x && claim.x * 1000 < Date.now()) return page('This link has expired', '<p>The shift date has passed.</p>', false);
+
+  const when = `${shortDate(claim.d)} — ${SLOT_LABEL[claim.s] ?? claim.s}`;
   try {
-    const body = (await req.json().catch(() => ({}))) as { email?: string; date?: string; slot?: string };
-    const email = (body.email ?? '').trim().toLowerCase();
-    const date = body.date ?? '';
-    const slot = body.slot ?? '';
-    if (!email.includes('@')) return json(400, { error: 'A valid email is required.' });
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { error: 'Invalid date.' });
-    if (slot !== 'early' && slot !== 'late') return json(400, { error: 'Invalid slot.' });
-    if (date < todayInNewYork()) return json(400, { error: 'That shift is in the past.' });
+    const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/claim-shift`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        Authorization: `Bearer ${Deno.env.get('SUPABASE_ANON_KEY') ?? ''}`,
+      },
+      body: JSON.stringify({ email: claim.e, date: claim.d, slot: claim.s }),
+    });
+    const out = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok) {
+      const already = res.status === 409 && /already/i.test(out.error ?? '');
+      return page(
+        already ? "You're already on this shift" : "Couldn't add you to this shift",
+        `<p><strong>${when}</strong></p><p>${out.error ?? 'Please try again or open the schedule.'}</p>`,
+        already,
+      );
+    }
 
+    // Calendar invite for the new assignment.
+    const { createClient } = await import('npm:@supabase/supabase-js@2');
     const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const { data: volunteer } = await db.from('volunteers').select('id, name').eq('email', email).maybeSingle();
-    if (!volunteer) return json(403, { error: 'This email is not on the volunteer roster — check with the coordinator.' });
-
-    const { data: shift } = await db
-      .from('green_team_shifts')
-      .select('id, assignments:shift_volunteers ( volunteer:volunteers ( id, name ) )')
-      .eq('date', date)
-      .eq('slot', slot)
-      .maybeSingle();
-    type Assignment = { volunteer: { id: string; name: string } | null };
-    const assignees = ((shift?.assignments ?? []) as unknown as Assignment[]).map((a) => a.volunteer).filter(Boolean) as { id: string; name: string }[];
-    if (!shift || !assignees.some((v) => v.id === volunteer.id)) return json(409, { error: "You're not on this shift." });
-    const others = assignees.filter((v) => v.id !== volunteer.id).map((v) => v.name);
-
-    // 1. Off the shift.
-    const { error: delError } = await db.from('shift_volunteers').delete().eq('shift_id', shift.id).eq('volunteer_id', volunteer.id);
-    if (delError) return json(500, { error: delError.message });
-
-    // 2. Cancel (or shrink) their calendar invite for that day, quietly.
-    try {
+    const { data: v } = await db.from('volunteers').select('id, name, email').eq('email', claim.e.toLowerCase()).maybeSingle();
+    if (v) {
       const token = await googleAccessToken(MAIL_FROM, 'https://www.googleapis.com/auth/calendar');
-      const params = new URLSearchParams({ maxResults: '50' });
-      params.append('privateExtendedProperty', `managedBy=${INVITE_MARKER}`);
-      params.append('privateExtendedProperty', `email=${email}`);
-      const list = await gfetch<{ items?: GoogleEvent[] }>(token, `${calendarBase()}?${params}`);
-      for (const ev of list.items ?? []) {
-        const [vid, d, kind] = (ev.extendedProperties?.private?.ptoKey ?? '').split('|');
-        if (vid !== volunteer.id || d !== date) continue;
-        if (kind === 'both shifts') {
-          // They keep the other half of the day.
-          const remaining = (slot === 'early' ? 'late' : 'early') as InviteKind;
-          await gfetch(token, `${calendarBase()}/${ev.id}?sendUpdates=all`, {
-            method: 'PATCH',
-            body: JSON.stringify(inviteEventBody({ id: volunteer.id, name: volunteer.name, email }, date, remaining)),
-          });
-        } else {
-          await gfetch(token, `${calendarBase()}/${ev.id}?sendUpdates=none`, { method: 'DELETE' });
-        }
-      }
-    } catch (e) {
-      console.error('invite cleanup failed', e);
-    }
-
-    // 3. Urgent → ask people who could cover.
-    const urgent = daysUntil(date) <= URGENT_DAYS;
-    let coverSent = 0;
-    if (urgent) {
-      const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/cover-requests`, {
+      await gfetch(token, `${calendarBase()}?sendUpdates=all`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-cron-secret': Deno.env.get('CRON_SECRET') ?? '' },
-        body: JSON.stringify({ action: 'shift', date, slot, exclude: email }),
-      });
-      coverSent = Number(((await res.json().catch(() => ({}))) as { sent?: number }).sent ?? 0);
+        body: JSON.stringify(inviteEventBody(v as { id: string; name: string; email: string }, claim.d, claim.s as InviteKind)),
+      }).catch((e) => console.error('invite create failed', e));
     }
-
-    await db.from('shift_declines').insert({
-      volunteer_id: volunteer.id,
-      volunteer_email: email,
-      volunteer_name: volunteer.name,
-      date,
-      slot,
-      source: 'app',
-      handling: urgent ? 'urgent-cover-request' : 'deferred-to-weekly',
-      cover_emails_sent: coverSent,
-    });
-
-    // 4. Coordinator FYI.
-    await sendMail({
-      to: COORDINATOR,
-      replyTo: email,
-      subject: `Can't make it: ${volunteer.name} — ${shortDate(date)} ${slot} shift`,
-      text: [
-        `${volunteer.name} (${email}) tapped "Can't make it" and has been taken off the shift.`,
-        '',
-        `• ${shortDate(date)} — ${SLOT_LABEL[slot]}: now ${others.length ? others.join(', ') : 'NOBODY'}` +
-          (urgent ? ` (cover request sent to ${coverSent} volunteer${coverSent === 1 ? '' : 's'})` : ''),
-        '',
-        urgent
-          ? `This is within ${URGENT_DAYS} days, so volunteers who are available have been asked to cover.`
-          : 'This is more than a week out — the Sunday-night gap check will handle it.',
-        '',
-        `Schedule: ${SITE}/admin/schedule`,
-      ].join('\n'),
-    });
-
-    return json(200, { ok: true, removed: true, coverSent });
+    return page("You're on it — thank you!", `<p><strong>${when}</strong></p><p>A calendar invitation from the Green Team is on its way to ${claim.e}.</p>`, true);
   } catch (err) {
     console.error(err);
-    return json(500, { error: err instanceof Error ? err.message : String(err) });
+    return page('Something went wrong', `<p><strong>${when}</strong></p><p>${err instanceof Error ? err.message : String(err)}</p>`, false);
   }
 });

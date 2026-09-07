@@ -300,3 +300,32 @@ create policy "admin can grant" on admins
   for insert to authenticated with check (public.is_admin());
 create policy "admin can revoke others" on admins
   for delete to authenticated using (public.is_admin() and user_id <> auth.uid());
+
+-- Google Calendar push/incremental-sync state for the Green Team calendar
+-- (single row). Service-role only.
+create table calendar_sync (
+  id boolean primary key default true check (id),
+  sync_token text,
+  channel_id text,
+  resource_id text,
+  channel_expires_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+alter table calendar_sync enable row level security;
+
+-- Every "can't make it" we learn about (calendar decline or app button),
+-- and how it was handled. Service-role only.
+create table shift_declines (
+  id uuid primary key default gen_random_uuid(),
+  volunteer_id uuid references volunteers (id) on delete set null,
+  volunteer_email text not null,
+  volunteer_name text not null,
+  date date not null,
+  slot text not null check (slot in ('early', 'late')),
+  source text not null check (source in ('calendar', 'app')),
+  handling text not null check (handling in ('urgent-cover-request', 'deferred-to-weekly')),
+  cover_emails_sent integer not null default 0,
+  declined_at timestamptz not null default now()
+);
+create index shift_declines_date_idx on shift_declines (date);
+alter table shift_declines enable row level security;
