@@ -144,7 +144,13 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
   return {
     summary: `${v.name}: Fiske Green Team (${kind})`,
     colorId: KIND_COLOR[kind],
-    description: `Your Green Team lunch shift at Fiske.\n\nCan't make it? Decline this invitation, or open ${SITE}/fiske-schedule and tap "Can't make it" on this shift.`,
+    description: [
+      'Your Green Team lunch shift at Fiske.',
+      '',
+      'Please ACCEPT this invitation once you know you can make it, and DECLINE as soon as you know you cannot — declining takes you off the shift right away so we can find cover.',
+      '',
+      `You can also open ${SITE}/fiske-schedule and tap "Can't make it" on the shift.`,
+    ].join('\n'),
     start: { dateTime: `${date}T${SLOT_TIMES[slots[0]!]!.start}:00`, timeZone: TZ },
     end: { dateTime: `${date}T${SLOT_TIMES[slots[slots.length - 1]!]!.end}:00`, timeZone: TZ },
     attendees: [{ email: v.email, displayName: v.name }],
@@ -180,8 +186,10 @@ Deno.serve(async (req) => {
       const { data: adminRow } = await db.from('admins').select('user_id').eq('user_id', userData.user.id).maybeSingle();
       if (!adminRow) return json(403, { error: 'Admins only.' });
     }
-    const body = (await req.json().catch(() => ({}))) as { confirm?: boolean; email?: string };
+    const body = (await req.json().catch(() => ({}))) as { confirm?: boolean; email?: string; limit?: number };
     const confirm = body.confirm === true;
+    // Per-call cap so a big first send fits the function's time budget; callers loop until 0 remain.
+    const limit = Math.max(1, Math.min(Number(body.limit ?? 60), 200));
     const onlyEmail = body.email?.toLowerCase();
 
     // Desired: one event per volunteer per day, from today onward.
@@ -234,13 +242,28 @@ Deno.serve(async (req) => {
     // Only cancel future events; past ones are history. Declined ones the webhook already handles.
     const toDelete = [...existing].filter(([k, g]) => !desired.has(k) && (g.start?.dateTime ?? '') >= today);
 
-    const plan = { create: toCreate.length, update: toUpdate.length, cancel: toDelete.length, volunteers: byPerson.size };
-    if (!confirm) return json(200, { dryRun: true, ...plan, hint: 'POST {"confirm":true} to send.' });
+    const plan = { create: toCreate.length, update: toUpdate.length, cancel: toDelete.length, personDays: byPerson.size };
+    if (!confirm) return json(200, { dryRun: true, ...plan, hint: 'POST {"confirm":true} to send (batches of `limit`, default 60).' });
 
-    for (const [, d] of toCreate) await gfetch(token, `${calendarBase()}?sendUpdates=all`, { method: 'POST', body: JSON.stringify(d) });
-    for (const [k, d] of toUpdate) await gfetch(token, `${calendarBase()}/${existing.get(k)!.id}?sendUpdates=all`, { method: 'PATCH', body: JSON.stringify(d) });
-    for (const [, g] of toDelete) await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=all`, { method: 'DELETE' }).catch(() => {});
-    return json(200, { dryRun: false, ...plan });
+    let budget = limit;
+    const done = { created: 0, updated: 0, cancelled: 0 };
+    for (const [, d] of toCreate) {
+      if (budget-- <= 0) break;
+      await gfetch(token, `${calendarBase()}?sendUpdates=all`, { method: 'POST', body: JSON.stringify(d) });
+      done.created++;
+    }
+    for (const [k, d] of toUpdate) {
+      if (budget-- <= 0) break;
+      await gfetch(token, `${calendarBase()}/${existing.get(k)!.id}?sendUpdates=all`, { method: 'PATCH', body: JSON.stringify(d) });
+      done.updated++;
+    }
+    for (const [, g] of toDelete) {
+      if (budget-- <= 0) break;
+      await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=all`, { method: 'DELETE' }).catch(() => {});
+      done.cancelled++;
+    }
+    const remaining = plan.create + plan.update + plan.cancel - done.created - done.updated - done.cancelled;
+    return json(200, { dryRun: false, ...plan, ...done, remaining });
   } catch (err) {
     console.error(err);
     return json(500, { error: err instanceof Error ? err.message : String(err) });
