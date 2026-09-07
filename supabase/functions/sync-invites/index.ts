@@ -148,8 +148,6 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
       'Your Green Team lunch shift at Fiske.',
       '',
       'Please ACCEPT this invitation once you know you can make it, and DECLINE as soon as you know you cannot — declining takes you off the shift right away so we can find cover.',
-      '',
-      `You can also open ${SITE}/fiske-schedule and tap "Can't make it" on the shift.`,
     ].join('\n'),
     start: { dateTime: `${date}T${SLOT_TIMES[slots[0]!]!.start}:00`, timeZone: TZ },
     end: { dateTime: `${date}T${SLOT_TIMES[slots[slots.length - 1]!]!.end}:00`, timeZone: TZ },
@@ -163,6 +161,7 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
 type GoogleEvent = {
   id: string;
   summary?: string;
+  description?: string;
   start?: { dateTime?: string };
   end?: { dateTime?: string };
   attendees?: { email?: string; responseStatus?: string }[];
@@ -232,10 +231,12 @@ Deno.serve(async (req) => {
       pageToken = pageData.nextPageToken;
     } while (pageToken);
 
-    const same = (g: GoogleEvent, d: ReturnType<typeof inviteEventBody>) =>
+    const sameTime = (g: GoogleEvent, d: ReturnType<typeof inviteEventBody>) =>
       g.summary === d.summary &&
       Boolean(g.start?.dateTime?.startsWith(d.start.dateTime)) &&
       Boolean(g.end?.dateTime?.startsWith(d.end.dateTime));
+    const same = (g: GoogleEvent, d: ReturnType<typeof inviteEventBody>) =>
+      sameTime(g, d) && (g.description ?? '') === d.description;
 
     const toCreate = [...desired].filter(([k]) => !existing.has(k));
     const toUpdate = [...desired].filter(([k, d]) => existing.has(k) && !same(existing.get(k)!, d));
@@ -254,7 +255,9 @@ Deno.serve(async (req) => {
     }
     for (const [k, d] of toUpdate) {
       if (budget-- <= 0) break;
-      await gfetch(token, `${calendarBase()}/${existing.get(k)!.id}?sendUpdates=all`, { method: 'PATCH', body: JSON.stringify(d) });
+      // A wording-only change is patched silently; a time/title change re-notifies the guest.
+      const notify = sameTime(existing.get(k)!, d) ? 'none' : 'all';
+      await gfetch(token, `${calendarBase()}/${existing.get(k)!.id}?sendUpdates=${notify}`, { method: 'PATCH', body: JSON.stringify(d) });
       done.updated++;
     }
     for (const [, g] of toDelete) {

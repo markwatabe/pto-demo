@@ -137,8 +137,6 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
       'Your Green Team lunch shift at Fiske.',
       '',
       'Please ACCEPT this invitation once you know you can make it, and DECLINE as soon as you know you cannot — declining takes you off the shift right away so we can find cover.',
-      '',
-      `You can also open ${SITE}/fiske-schedule and tap "Can't make it" on the shift.`,
     ].join('\n'),
     start: { dateTime: `${date}T${SLOT_TIMES[slots[0]!]!.start}:00`, timeZone: TZ },
     end: { dateTime: `${date}T${SLOT_TIMES[slots[slots.length - 1]!]!.end}:00`, timeZone: TZ },
