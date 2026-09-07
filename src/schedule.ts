@@ -133,7 +133,10 @@ export type DraftPlan = {
  *     monthly/custom = 4), and for "alternate" volunteers never the same
  *     slot as the shift before or after.
  *  0. Fixed shifts: anyone with a standing weekday/slot rule is placed on
- *     every such school day first (still skipping their blackouts).
+ *     every such school day first (still skipping their blackouts). Then
+ *     alternating volunteers are walked through the range in date order at
+ *     their cadence, flipping early/late each time — they need sequence,
+ *     which the scarcity-driven passes below can't give them.
  *  2. Fill every shift with at least one person. Only veterans may hold a
  *     shift alone, so this pass places veterans — hardest-to-fill shifts
  *     first, always choosing the person furthest behind their cadence.
@@ -335,6 +338,37 @@ export function buildDraft(args: {
       if (!volunteer.veteran && !hasVeteran(shift.id)) continue;
       record(volunteer.id, shift);
       assignmentInserts.push({ shift_id: shift.id, volunteer_id: volunteer.id });
+    }
+  }
+
+  // Pass 0b — alternators, chronologically at their cadence. A week with no
+  // usable shift slides the cadence by one week rather than dropping a turn.
+  const maxWeek = weeksInRange - 1;
+  const dayWeek = new Map(days.map((d) => [d, weekOf(d)]));
+  for (const volunteer of [...args.volunteers].sort(byNeed)) {
+    if (!canAlternate(volunteer)) continue;
+    const interval = intervalWeeksFor(volunteer.frequency);
+    const taken = takenByVolunteer.get(volunteer.id) ?? [];
+    const last = taken.reduce<{ date: string; slot: Slot } | undefined>(
+      (a, b) => (!a || b.date > a.date ? b : a),
+      undefined,
+    );
+    let want: Slot = last ? (last.slot === 'early' ? 'late' : 'early') : 'early';
+    let week = last ? weekOf(last.date) + interval : 0;
+    while (week <= maxWeek) {
+      const options = shiftsInRange
+        .filter((sh) => dayWeek.get(sh.date) === week && sh.slot === want && canTake(volunteer, sh))
+        .filter((sh) => size(sh) < 2 && (volunteer.veteran || hasVeteran(sh.id)))
+        .sort((a, b) => size(a) - size(b) || a.date.localeCompare(b.date));
+      const pick = options[0];
+      if (pick) {
+        record(volunteer.id, pick);
+        assignmentInserts.push({ shift_id: pick.id, volunteer_id: volunteer.id });
+        want = want === 'early' ? 'late' : 'early';
+        week += interval;
+      } else {
+        week += 1;
+      }
     }
   }
 
