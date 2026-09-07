@@ -25,6 +25,7 @@ export const FREQ_LABEL: Record<Frequency, string> = {
 const WEEKDAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu'];
 
 export type Blackout = BlackoutRow & { id: string; note: string | null };
+export const WEEKDAY_LONG = ['', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays'];
 
 /**
  * "9/1/2025", "9/1/25", "2025-09-01" or "Sep 1 2025" -> "2025-09-01"; null if
@@ -51,14 +52,18 @@ export function parseUserDate(text: string): string | null {
   return isoDate(date);
 }
 
-/** "2025-09-01".."2025-09-14" -> "Sep 1 – Sep 14, 2025"; a one-day window -> "Sep 1, 2025". */
+/**
+ * "2025-09-01".."2025-09-14" -> "Sep 1 – Sep 14, 2025"; a one-day window ->
+ * "Sep 1, 2025"; with a weekday -> "Tuesdays, Sep 8 – Apr 6, 2027".
+ */
 export function formatBlackout(b: BlackoutRow): string {
   const a = toLocalDate(b.starts_on);
   const z = toLocalDate(b.ends_on);
   const md = (x: Date) => x.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  if (b.starts_on === b.ends_on) return `${md(a)}, ${a.getFullYear()}`;
-  if (a.getFullYear() === z.getFullYear()) return `${md(a)} – ${md(z)}, ${z.getFullYear()}`;
-  return `${md(a)}, ${a.getFullYear()} – ${md(z)}, ${z.getFullYear()}`;
+  const prefix = b.weekday ? `${WEEKDAY_LONG[b.weekday]}, ` : '';
+  if (b.starts_on === b.ends_on) return `${prefix}${md(a)}, ${a.getFullYear()}`;
+  if (a.getFullYear() === z.getFullYear()) return `${prefix}${md(a)} – ${md(z)}, ${z.getFullYear()}`;
+  return `${prefix}${md(a)}, ${a.getFullYear()} – ${md(z)}, ${z.getFullYear()}`;
 }
 
 /** One line each: availability ("Mon E/L · Thu E"), frequency, grades, notes. */

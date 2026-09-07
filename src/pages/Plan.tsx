@@ -28,6 +28,7 @@ import {
   type AvailabilityRow,
   type BlackoutRow,
   type DraftPlan,
+  type FixedShiftRow,
   type RosterVolunteer,
   type ShiftRow,
   type Slot,
@@ -128,7 +129,7 @@ export function PlanPage() {
     Promise.all([
       supabase.from('volunteers').select(ROSTER_DETAIL_SELECT).order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
-      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
+      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
     ]).then(([rosterRes, availRes, blackoutRes]) => {
       if (cancelled) return;
       const loadError = rosterRes.error ?? availRes.error ?? blackoutRes.error;
@@ -222,7 +223,7 @@ export function PlanPage() {
       ),
     );
 
-    const [shiftsRes, availabilityRes, volunteersRes, closuresRes, blackoutsRes] = await Promise.all([
+    const [shiftsRes, availabilityRes, volunteersRes, closuresRes, blackoutsRes, fixedRes] = await Promise.all([
       supabase
         .from('green_team_shifts')
         .select('id, date, slot')
@@ -231,14 +232,16 @@ export function PlanPage() {
       supabase.from('availability').select('volunteer_id, weekday, slot'),
       supabase.from('volunteers').select('id, name, frequency, backfill, veteran').order('name'),
       supabase.from('school_closures').select('date'),
-      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
+      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
+      supabase.from('volunteer_fixed_shifts').select('volunteer_id, weekday, slot'),
     ]);
     const fetchError =
       shiftsRes.error ??
       availabilityRes.error ??
       volunteersRes.error ??
       closuresRes.error ??
-      blackoutsRes.error;
+      blackoutsRes.error ??
+      fixedRes.error;
     if (fetchError) {
       setBusy(null);
       setError(fetchError.message);
@@ -269,6 +272,7 @@ export function PlanPage() {
       existingAssignments,
       availability: (availabilityRes.data ?? []) as AvailabilityRow[],
       blackouts: (blackoutsRes.data ?? []) as BlackoutRow[],
+      fixedShifts: (fixedRes.data ?? []) as FixedShiftRow[],
       volunteers,
       newId: () => crypto.randomUUID(),
     });

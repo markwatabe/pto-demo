@@ -14,6 +14,7 @@ import {
   type AssignmentRow,
   type AvailabilityRow,
   type BlackoutRow,
+  type FixedShiftRow,
   type RosterVolunteer,
   type ShiftRow,
 } from '../src/schedule';
@@ -39,19 +40,21 @@ async function main() {
     .maybeSingle();
   if (yearError || !year) throw new Error(yearError?.message ?? 'No school year set.');
 
-  const [shiftsRes, closuresRes, volunteersRes, availabilityRes, blackoutsRes] = await Promise.all([
+  const [shiftsRes, closuresRes, volunteersRes, availabilityRes, blackoutsRes, fixedRes] = await Promise.all([
     db.from('green_team_shifts').select('id, date, slot'),
     db.from('school_closures').select('date'),
     db.from('volunteers').select('id, name, frequency, backfill, veteran'),
     db.from('availability').select('volunteer_id, weekday, slot'),
-    db.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
+    db.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
+    db.from('volunteer_fixed_shifts').select('volunteer_id, weekday, slot'),
   ]);
   const fetchError =
     shiftsRes.error ??
     closuresRes.error ??
     volunteersRes.error ??
     availabilityRes.error ??
-    blackoutsRes.error;
+    blackoutsRes.error ??
+    fixedRes.error;
   if (fetchError) throw new Error(fetchError.message);
 
   const existingShifts = (shiftsRes.data ?? []) as ShiftRow[];
@@ -72,6 +75,7 @@ async function main() {
     existingAssignments: [] as AssignmentRow[],
     availability: (availabilityRes.data ?? []) as AvailabilityRow[],
     blackouts: (blackoutsRes.data ?? []) as BlackoutRow[],
+    fixedShifts: (fixedRes.data ?? []) as FixedShiftRow[],
     volunteers: (volunteersRes.data ?? []) as RosterVolunteer[],
     newId: () => randomUUID(),
   });

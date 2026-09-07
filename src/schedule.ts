@@ -30,8 +30,18 @@ export type RosterVolunteer = {
 };
 
 export type AvailabilityRow = { volunteer_id: string; weekday: number; slot: Slot };
-/** An inclusive date window a volunteer can't do at all (vacation etc.). */
-export type BlackoutRow = { volunteer_id: string; starts_on: string; ends_on: string };
+/**
+ * An inclusive date window a volunteer can't do (vacation etc.). With a
+ * `weekday` (1=Mon..4=Thu) only that weekday inside the window is blocked.
+ */
+export type BlackoutRow = {
+  volunteer_id: string;
+  starts_on: string;
+  ends_on: string;
+  weekday?: number | null;
+};
+/** Standing rule: always on this weekday/slot, placed before anything else. */
+export type FixedShiftRow = { volunteer_id: string; weekday: number; slot: Slot };
 export type ShiftRow = { id: string; date: string; slot: Slot };
 export type AssignmentRow = { shift_id: string; volunteer_id: string };
 
@@ -84,7 +94,11 @@ export function isBlackedOut(
   blackouts: readonly BlackoutRow[],
 ): boolean {
   return blackouts.some(
-    (b) => b.volunteer_id === volunteerId && iso >= b.starts_on && iso <= b.ends_on,
+    (b) =>
+      b.volunteer_id === volunteerId &&
+      iso >= b.starts_on &&
+      iso <= b.ends_on &&
+      (b.weekday == null || b.weekday === weekdayOf(iso)),
   );
 }
 
@@ -115,6 +129,8 @@ export type DraftPlan = {
  *     inside one of their blackout windows, and never two shifts closer
  *     together than their cadence (weekly = 1 week apart, biweekly = 2,
  *     monthly/custom = 4).
+ *  0. Fixed shifts: anyone with a standing weekday/slot rule is placed on
+ *     every such school day first (still skipping their blackouts).
  *  2. Fill every shift with at least one person. Only veterans may hold a
  *     shift alone, so this pass places veterans — hardest-to-fill shifts
  *     first, always choosing the person furthest behind their cadence.
@@ -134,11 +150,13 @@ export function buildDraft(args: {
   existingAssignments: readonly AssignmentRow[];
   availability: readonly AvailabilityRow[];
   blackouts?: readonly BlackoutRow[];
+  fixedShifts?: readonly FixedShiftRow[];
   volunteers: readonly RosterVolunteer[];
   newId: () => string;
 }): DraftPlan {
   const { from, to, closures, newId } = args;
   const blackouts = args.blackouts ?? [];
+  const fixedShifts = args.fixedShifts ?? [];
 
   const shiftsByKey = new Map(args.existingShifts.map((s) => [`${s.date}|${s.slot}`, s]));
   const shiftsById = new Map(args.existingShifts.map((s) => [s.id, s]));
@@ -268,6 +286,21 @@ export function buildDraft(args: {
 
   const size = (shift: ShiftRow) => shiftAssignees.get(shift.id)?.size ?? 0;
   const veterans = args.volunteers.filter((v) => v.veteran);
+
+  // Pass 0 — standing rules, regardless of cadence (but never on a blackout
+  // day, never onto a full shift, and a new volunteer still needs a veteran).
+  for (const shift of shiftsInRange) {
+    for (const rule of fixedShifts) {
+      if (rule.weekday !== weekdayOf(shift.date) || rule.slot !== shift.slot) continue;
+      const volunteer = volunteersById.get(rule.volunteer_id);
+      if (!volunteer || size(shift) >= 2) continue;
+      if (shiftAssignees.get(shift.id)?.has(volunteer.id)) continue;
+      if (isBlackedOut(volunteer.id, shift.date, blackouts)) continue;
+      if (!volunteer.veteran && !hasVeteran(shift.id)) continue;
+      record(volunteer.id, shift);
+      assignmentInserts.push({ shift_id: shift.id, volunteer_id: volunteer.id });
+    }
+  }
 
   // Pass 1 — cover every empty shift with one veteran.
   fillPass(

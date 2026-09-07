@@ -338,6 +338,8 @@ create table volunteer_blackouts (
   volunteer_id uuid not null references volunteers (id) on delete cascade,
   starts_on date not null,
   ends_on date not null check (ends_on >= starts_on),
+  -- Optional: only this weekday (1=Mon..4=Thu) inside the window; null = every day.
+  weekday smallint check (weekday between 1 and 4),
   note text,
   created_at timestamptz not null default now()
 );
@@ -372,3 +374,21 @@ create policy "admin or owner can delete" on volunteer_blackouts
     where v.id = volunteer_id
       and lower(v.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
   ));
+
+-- Standing rule: this volunteer is placed on this weekday/slot every school
+-- day, before anything else and regardless of cadence (e.g. the coordinator
+-- doing every Tuesday, both shifts).
+create table volunteer_fixed_shifts (
+  id uuid primary key default gen_random_uuid(),
+  volunteer_id uuid not null references volunteers (id) on delete cascade,
+  weekday smallint not null check (weekday between 1 and 4),
+  slot text not null check (slot in ('early', 'late')),
+  unique (volunteer_id, weekday, slot)
+);
+alter table volunteer_fixed_shifts enable row level security;
+create policy "approved can read" on volunteer_fixed_shifts
+  for select to authenticated using (public.is_approved());
+create policy "admin can insert" on volunteer_fixed_shifts
+  for insert to authenticated with check (public.is_admin());
+create policy "admin can delete" on volunteer_fixed_shifts
+  for delete to authenticated using (public.is_admin());

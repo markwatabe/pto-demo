@@ -151,7 +151,7 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
 // ---- end helpers ----
 
 type Volunteer = { id: string; name: string; email: string; veteran: boolean; backfill: boolean };
-type Blackout = { volunteer_id: string; starts_on: string; ends_on: string };
+type Blackout = { volunteer_id: string; starts_on: string; ends_on: string; weekday: number | null };
 type Shift = { id: string; date: string; slot: string; people: { id: string; veteran: boolean }[] };
 
 async function claimLink(email: string, date: string, slot: string): Promise<string> {
@@ -168,7 +168,7 @@ async function loadRoster() {
   const [vRes, aRes, bRes] = await Promise.all([
     client.from('volunteers').select('id, name, email, veteran, backfill'),
     client.from('availability').select('volunteer_id, weekday, slot'),
-    client.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
+    client.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
   ]);
   if (vRes.error || aRes.error || bRes.error) throw new Error((vRes.error ?? aRes.error ?? bRes.error)!.message);
   const cells = new Set((aRes.data ?? []).map((a) => `${a.volunteer_id}|${a.weekday}|${a.slot}`));
@@ -200,7 +200,13 @@ function candidates(shift: Shift, volunteers: Volunteer[], cells: Set<string>, b
     (v) =>
       v.email !== exclude &&
       cells.has(`${v.id}|${weekdayOf(shift.date)}|${shift.slot}`) &&
-      !blackouts.some((b) => b.volunteer_id === v.id && shift.date >= b.starts_on && shift.date <= b.ends_on) &&
+      !blackouts.some(
+        (b) =>
+          b.volunteer_id === v.id &&
+          shift.date >= b.starts_on &&
+          shift.date <= b.ends_on &&
+          (b.weekday == null || b.weekday === weekdayOf(shift.date)),
+      ) &&
       !shift.people.some((p) => p.id === v.id) &&
       (v.veteran || hasVeteran),
   );

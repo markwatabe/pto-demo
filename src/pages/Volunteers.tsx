@@ -8,6 +8,7 @@ import {
   Inline,
   PageHeader,
   PageShell,
+  Select,
   Spinner,
   Stack,
   Strong,
@@ -16,6 +17,7 @@ import {
 import { DataTable, type DataTableColumnDef } from '@apygee/data-table';
 import { supabase } from '../supabase';
 import { formatBlackout, parseUserDate, type Blackout } from '../volunteerInfo';
+import type { FixedShiftRow } from '../schedule';
 
 type AvailabilityRow = { volunteer_id: string; weekday: number; slot: string };
 
@@ -32,7 +34,7 @@ type Volunteer = {
   notes: string | null;
 };
 
-type Row = Volunteer & { availability: string; blackouts: Blackout[] };
+type Row = Volunteer & { availability: string; blackouts: Blackout[]; fixed: FixedShiftRow[] };
 
 const WEEKDAY_SHORT = ['', 'Mon', 'Tue', 'Wed', 'Thu'];
 const FREQ_LABEL: Record<Volunteer['frequency'], string> = {
@@ -41,6 +43,19 @@ const FREQ_LABEL: Record<Volunteer['frequency'], string> = {
   biweekly: '2×/month',
   custom: 'custom',
 };
+
+// "Tue E/L" for standing rules.
+function fixedLabel(rows: FixedShiftRow[]): string {
+  const byDay = new Map<number, Set<string>>();
+  for (const r of rows) byDay.set(r.weekday, (byDay.get(r.weekday) ?? new Set()).add(r.slot));
+  return [1, 2, 3, 4]
+    .filter((d) => byDay.has(d))
+    .map((d) => {
+      const slots = byDay.get(d)!;
+      return `${WEEKDAY_SHORT[d]} ${slots.has('early') && slots.has('late') ? 'E/L' : slots.has('early') ? 'E' : 'L'}`;
+    })
+    .join(' · ');
+}
 
 // "Mon E/L · Thu E" — E = early (11:05–12:15), L = late (12:20–1:30).
 function availabilityLabel(rows: AvailabilityRow[]): string {
@@ -122,20 +137,28 @@ function buildColumns(onManageBlackouts: (v: Row) => void): DataTableColumnDef<R
     enableSorting: false,
     accessorFn: (v) => v.blackouts.map(formatBlackout).join(' '),
     size: 220,
-    cell: ({ row }) => (
+    cell: ({ row }) => {
+      const sorted = [...row.original.blackouts].sort((a, b) => a.starts_on.localeCompare(b.starts_on));
+      const shown = sorted.slice(0, 3);
+      return (
       <Stack gap="xs">
-        {row.original.blackouts.length === 0 ? (
+        {row.original.fixed.length ? (
+          <Caption>{`Always: ${fixedLabel(row.original.fixed)}`}</Caption>
+        ) : null}
+        {sorted.length === 0 ? (
           <Caption>—</Caption>
         ) : (
-          row.original.blackouts.map((b) => <Caption key={b.id}>{formatBlackout(b)}</Caption>)
+          shown.map((b) => <Caption key={b.id}>{formatBlackout(b)}</Caption>)
         )}
+        {sorted.length > shown.length ? <Caption>{`+${sorted.length - shown.length} more`}</Caption> : null}
         <span>
           <Button variant="ghost" size="sm" onClick={() => onManageBlackouts(row.original)}>
             {row.original.blackouts.length ? 'Edit' : 'Add dates'}
           </Button>
         </span>
       </Stack>
-    ),
+      );
+    },
   },
   {
     id: 'grades',
@@ -173,6 +196,7 @@ function BlackoutDialog({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [note, setNote] = useState('');
+  const [weekday, setWeekday] = useState('');
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -180,6 +204,7 @@ function BlackoutDialog({
     setFrom('');
     setTo('');
     setNote('');
+    setWeekday('');
     setFormError(null);
   }, [volunteer?.id]);
 
@@ -195,12 +220,19 @@ function BlackoutDialog({
     setFormError(null);
     const { error } = await supabase
       .from('volunteer_blackouts')
-      .insert({ volunteer_id: volunteer.id, starts_on: starts, ends_on: ends, note: note.trim() || null });
+      .insert({
+        volunteer_id: volunteer.id,
+        starts_on: starts,
+        ends_on: ends,
+        weekday: weekday ? Number(weekday) : null,
+        note: note.trim() || null,
+      });
     setBusy(false);
     if (error) return setFormError(error.message);
     setFrom('');
     setTo('');
     setNote('');
+    setWeekday('');
     await onChanged();
   }
 
@@ -262,12 +294,28 @@ function BlackoutDialog({
                 onChange={(e) => setTo(e.currentTarget.value)}
               />
             </Inline>
-            <TextField
-              label="Note (optional)"
-              placeholder="Vacation"
-              value={note}
-              onChange={(e) => setNote(e.currentTarget.value)}
-            />
+            <Inline gap="sm" wrap>
+              <Stack gap="xs">
+                <Caption>Which days</Caption>
+                <Select
+                  value={weekday || 'all'}
+                  onChange={(value) => setWeekday(value === 'all' || value === null ? '' : value)}
+                  options={[
+                    { value: 'all', label: 'Every day in the window' },
+                    { value: '1', label: 'Mondays only' },
+                    { value: '2', label: 'Tuesdays only' },
+                    { value: '3', label: 'Wednesdays only' },
+                    { value: '4', label: 'Thursdays only' },
+                  ]}
+                />
+              </Stack>
+              <TextField
+                label="Note (optional)"
+                placeholder="Vacation"
+                value={note}
+                onChange={(e) => setNote(e.currentTarget.value)}
+              />
+            </Inline>
             {formError ? <Alert tone="danger" title="Check the dates" description={formError} /> : null}
             <span>
               <Button type="submit" disabled={busy || !from.trim()}>
@@ -290,21 +338,24 @@ export function VolunteersPage() {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [availability, setAvailability] = useState<AvailabilityRow[]>([]);
   const [blackouts, setBlackouts] = useState<Blackout[]>([]);
+  const [fixed, setFixed] = useState<FixedShiftRow[]>([]);
   const [managing, setManaging] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [volsRes, availRes, blackoutRes] = await Promise.all([
+    const [volsRes, availRes, blackoutRes, fixedRes] = await Promise.all([
       supabase
         .from('volunteers')
         .select('id, email, name, veteran, grades, frequency, frequency_note, cori, backfill, notes')
         .order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
-      supabase.from('volunteer_blackouts').select('id, volunteer_id, starts_on, ends_on, note'),
+      supabase.from('volunteer_blackouts').select('id, volunteer_id, starts_on, ends_on, weekday, note'),
+      supabase.from('volunteer_fixed_shifts').select('volunteer_id, weekday, slot'),
     ]);
-    setError(volsRes.error ?? availRes.error ?? blackoutRes.error);
+    setError(volsRes.error ?? availRes.error ?? blackoutRes.error ?? fixedRes.error);
     setVolunteers((volsRes.data ?? []) as Volunteer[]);
     setAvailability((availRes.data ?? []) as AvailabilityRow[]);
     setBlackouts((blackoutRes.data ?? []) as Blackout[]);
+    setFixed((fixedRes.data ?? []) as FixedShiftRow[]);
     setIsLoading(false);
   }, []);
 
@@ -353,6 +404,7 @@ export function VolunteersPage() {
         ...v,
         availability: availabilityLabel(byVolunteer.get(v.id) ?? []),
         blackouts: blackouts.filter((b) => b.volunteer_id === v.id),
+        fixed: fixed.filter((f) => f.volunteer_id === v.id),
       }))
       .filter(
         (v) =>
@@ -362,7 +414,7 @@ export function VolunteersPage() {
             .toLowerCase()
             .includes(q),
       );
-  }, [volunteers, availability, blackouts, filter]);
+  }, [volunteers, availability, blackouts, fixed, filter]);
 
   const columns = useMemo(() => buildColumns((v) => setManaging(v.id)), []);
   const managingRow = managing ? (rows.find((r) => r.id === managing) ?? null) : null;

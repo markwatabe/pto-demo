@@ -29,6 +29,7 @@ import {
   type AssignmentRow,
   type AvailabilityRow,
   type BlackoutRow,
+  type FixedShiftRow,
   type DraftPlan,
   type Frequency,
   type RosterVolunteer,
@@ -228,7 +229,7 @@ export function SchedulePage() {
       new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate() - (TRAILING_WINDOW_DAYS - 1)),
     );
 
-    const [shiftsRes, availabilityRes, volunteersRes, closuresRes, blackoutsRes] = await Promise.all([
+    const [shiftsRes, availabilityRes, volunteersRes, closuresRes, blackoutsRes, fixedRes] = await Promise.all([
       supabase
         .from('green_team_shifts')
         .select('id, date, slot')
@@ -237,14 +238,16 @@ export function SchedulePage() {
       supabase.from('availability').select('volunteer_id, weekday, slot'),
       supabase.from('volunteers').select('id, name, frequency, backfill, veteran'),
       supabase.from('school_closures').select('date, reason'),
-      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
+      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
+      supabase.from('volunteer_fixed_shifts').select('volunteer_id, weekday, slot'),
     ]);
     const fetchError =
       shiftsRes.error ??
       availabilityRes.error ??
       volunteersRes.error ??
       closuresRes.error ??
-      blackoutsRes.error;
+      blackoutsRes.error ??
+      fixedRes.error;
     if (fetchError) {
       setGenerating(false);
       setError(fetchError.message);
@@ -274,6 +277,7 @@ export function SchedulePage() {
       existingAssignments,
       availability: (availabilityRes.data ?? []) as AvailabilityRow[],
       blackouts: (blackoutsRes.data ?? []) as BlackoutRow[],
+      fixedShifts: (fixedRes.data ?? []) as FixedShiftRow[],
       volunteers: (volunteersRes.data ?? []) as RosterVolunteer[],
       newId: () => crypto.randomUUID(),
     });
@@ -332,7 +336,7 @@ export function SchedulePage() {
         .eq('date', dayDate),
       supabase.from('volunteers').select(ROSTER_DETAIL_SELECT).order('name'),
       supabase.from('availability').select('volunteer_id, weekday, slot'),
-      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on'),
+      supabase.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
     ]);
     const loadError = shiftsRes.error ?? rosterRes.error ?? availRes.error ?? blackoutRes.error;
     if (loadError) {

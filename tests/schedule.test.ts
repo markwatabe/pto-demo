@@ -6,6 +6,7 @@ import {
   isBlackedOut,
   type AvailabilityRow,
   type BlackoutRow,
+  type FixedShiftRow,
   type RosterVolunteer,
 } from '../src/schedule';
 
@@ -39,9 +40,11 @@ function draft(args: {
   availability: AvailabilityRow[];
   existing?: { shifts: { id: string; date: string; slot: 'early' | 'late' }[]; assignments: { shift_id: string; volunteer_id: string }[] };
   blackouts?: BlackoutRow[];
+  fixedShifts?: FixedShiftRow[];
 }) {
   return buildDraft({
     blackouts: args.blackouts,
+    fixedShifts: args.fixedShifts,
     from: FROM,
     to: args.to,
     closures: new Set(),
@@ -171,4 +174,29 @@ test('rule 1: blackout windows are never scheduled, cadence resumes after', () =
   assert.equal(isBlackedOut('a', '2026-10-11', blackouts), true);
   assert.equal(isBlackedOut('a', '2026-10-12', blackouts), false);
   assert.equal(isBlackedOut('b', '2026-09-21', blackouts), false);
+});
+
+test('weekday-limited blackout blocks only that weekday', () => {
+  const blackouts: BlackoutRow[] = [{ volunteer_id: 'a', starts_on: '2026-09-01', ends_on: '2026-12-31', weekday: 2 }];
+  assert.equal(isBlackedOut('a', '2026-09-08', blackouts), true); // Tuesday
+  assert.equal(isBlackedOut('a', '2026-09-09', blackouts), false); // Wednesday
+});
+
+test('pass 0: a fixed weekday/slot rule is placed every week regardless of cadence', () => {
+  // Monthly person with a standing "every Tuesday, both shifts" rule, 8 weeks.
+  const plan = draft({
+    to: EIGHT_WEEKS,
+    volunteers: [vol('boss', { frequency: 'monthly' })],
+    availability: cells('boss', ALL_CELLS),
+    fixedShifts: [
+      { volunteer_id: 'boss', weekday: 2, slot: 'early' },
+      { volunteer_id: 'boss', weekday: 2, slot: 'late' },
+    ],
+  });
+  const shiftById = new Map(plan.shiftInserts.map((s) => [s.id, s]));
+  const placed = plan.assignmentInserts.map((x) => shiftById.get(x.shift_id)!);
+  const tuesdays = placed.filter((s) => weekdayOf(s.date) === 2);
+  assert.equal(tuesdays.length, 16); // 8 Tuesdays × 2 slots
+  // Cadence rule then keeps them off every other day that week (weekly gap 0 < 4).
+  assert.equal(placed.length - tuesdays.length, 0);
 });
