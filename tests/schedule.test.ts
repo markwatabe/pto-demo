@@ -224,3 +224,25 @@ test('pass 0: a fixed weekday/slot rule is placed every week regardless of caden
   // Cadence rule then keeps them off every other day that week (weekly gap 0 < 4).
   assert.equal(placed.length - tuesdays.length, 0);
 });
+
+test('eligible() gate: only flexible people before a cutoff', () => {
+  const vols = [vol('flex', { frequency: 'weekly', backfill: true }), vol('rigid', { frequency: 'weekly' })];
+  const plan = buildDraft({
+    from: FROM,
+    to: TWO_WEEKS,
+    closures: new Set(),
+    existingShifts: [],
+    existingAssignments: [],
+    availability: vols.flatMap((v) => cells(v.id, ALL_CELLS)),
+    volunteers: vols,
+    eligible: (v, date) => date > '2026-09-11' || v.backfill,
+    newId,
+  });
+  const shiftById = new Map(plan.shiftInserts.map((s) => [s.id, s]));
+  const rigidWeek1 = plan.assignmentInserts.filter(
+    (a) => a.volunteer_id === 'rigid' && shiftById.get(a.shift_id)!.date <= '2026-09-11',
+  );
+  assert.equal(rigidWeek1.length, 0);
+  assert.ok(plan.assignmentInserts.some((a) => a.volunteer_id === 'flex' && shiftById.get(a.shift_id)!.date <= '2026-09-11'));
+  assert.ok(plan.assignmentInserts.some((a) => a.volunteer_id === 'rigid'));
+});

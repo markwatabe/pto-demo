@@ -158,11 +158,14 @@ export function buildDraft(args: {
   blackouts?: readonly BlackoutRow[];
   fixedShifts?: readonly FixedShiftRow[];
   volunteers: readonly RosterVolunteer[];
+  /** Extra gate, e.g. "only flexible people in the first two weeks". */
+  eligible?: (volunteer: RosterVolunteer, date: string) => boolean;
   newId: () => string;
 }): DraftPlan {
   const { from, to, closures, newId } = args;
   const blackouts = args.blackouts ?? [];
   const fixedShifts = args.fixedShifts ?? [];
+  const eligible = args.eligible ?? (() => true);
 
   const shiftsByKey = new Map(args.existingShifts.map((s) => [`${s.date}|${s.slot}`, s]));
   const shiftsById = new Map(args.existingShifts.map((s) => [s.id, s]));
@@ -273,6 +276,7 @@ export function buildDraft(args: {
       return false;
     }
     if (isBlackedOut(volunteer.id, shift.date, blackouts)) return false;
+    if (!eligible(volunteer, shift.date)) return false;
     if (alternationClash(volunteer, shift)) return false;
     if (shiftAssignees.get(shift.id)?.has(volunteer.id)) return false;
     const interval = intervalWeeksFor(volunteer.frequency);
@@ -335,6 +339,7 @@ export function buildDraft(args: {
       if (!volunteer || size(shift) >= 2) continue;
       if (shiftAssignees.get(shift.id)?.has(volunteer.id)) continue;
       if (isBlackedOut(volunteer.id, shift.date, blackouts)) continue;
+      if (!eligible(volunteer, shift.date)) continue;
       if (!volunteer.veteran && !hasVeteran(shift.id)) continue;
       record(volunteer.id, shift);
       assignmentInserts.push({ shift_id: shift.id, volunteer_id: volunteer.id });
