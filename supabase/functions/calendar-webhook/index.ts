@@ -16,6 +16,10 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 const URGENT_DAYS = 7;
+// Automatic "can you cover?" emails to volunteers on a same-week decline.
+// Off unless the AUTO_COVER_REQUESTS secret is "true" (the coordinator asked
+// to stop these — they were spamming people). The coordinator FYI still goes.
+const AUTO_COVER = Deno.env.get('AUTO_COVER_REQUESTS') === 'true';
 const WATCH_TTL_MS = 7 * 24 * 3600 * 1000;
 const RENEW_WITHIN_MS = 2 * 24 * 3600 * 1000;
 
@@ -262,7 +266,8 @@ async function handleDecline(
   }
   if (removed.length === 0) return false;
 
-  const urgent = daysUntil(date) <= URGENT_DAYS;
+  const soon = daysUntil(date) <= URGENT_DAYS;
+  const urgent = soon && AUTO_COVER;
   const handling = urgent ? 'urgent-cover-request' : 'deferred-to-weekly';
 
   // Cancel their invite quietly (they already declined).
@@ -310,7 +315,9 @@ async function handleDecline(
       '',
       urgent
         ? `This is within ${URGENT_DAYS} days, so volunteers who are available have been asked to cover.`
-        : 'This is more than a week out — the Sunday-night gap check will handle it.',
+        : soon
+          ? `This is within ${URGENT_DAYS} days. Automatic cover requests are off — find cover by hand if needed.`
+          : 'This is more than a week out — the Sunday-night gap check will handle it.',
       '',
       `Schedule: ${SITE}/admin/schedule`,
     ].join('\n'),

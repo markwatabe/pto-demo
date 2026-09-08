@@ -3,7 +3,10 @@
  * year untouched. Assignments outside the window still anchor everyone's
  * cadence, alternation and pairing rules.
  *
- *   pnpm tsx scripts/reschedule-window.ts --from 2026-09-08 --to 2026-09-21 [--flexible-only]
+ *   pnpm tsx scripts/reschedule-window.ts --from 2026-09-08 --to 2026-09-21 [--flexible-only] [--only email]
+ *
+ * --only: redraw just this volunteer — only their assignments in the window
+ * are cleared and only they are placed; everyone else stays put.
  *
  * --flexible-only: inside the window only volunteers who said they have a
  * flexible schedule (the "emergency backfill" question → volunteers.backfill)
@@ -29,6 +32,7 @@ const arg = (name: string) => {
 const from = arg('--from');
 const to = arg('--to');
 const flexibleOnly = process.argv.includes('--flexible-only');
+const only = arg('--only')?.toLowerCase();
 if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
   throw new Error('Usage: --from YYYY-MM-DD --to YYYY-MM-DD [--flexible-only]');
 }
@@ -44,7 +48,7 @@ async function main() {
     await Promise.all([
       db.from('green_team_shifts').select('id, date, slot'),
       db.from('school_closures').select('date'),
-      db.from('volunteers').select('id, name, frequency, backfill, veteran, alternate'),
+      db.from('volunteers').select('id, name, email, frequency, backfill, veteran, alternate'),
       db.from('availability').select('volunteer_id, weekday, slot'),
       db.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
       db.from('volunteer_fixed_shifts').select('volunteer_id, weekday, slot'),
@@ -57,12 +61,19 @@ async function main() {
 
   const shifts = (shiftsRes.data ?? []) as ShiftRow[];
   const inWindow = new Set(shifts.filter((s) => s.date >= from && s.date <= to).map((s) => s.id));
+  type Vol = RosterVolunteer & { email: string };
+  const volunteers = (volunteersRes.data ?? []) as Vol[];
+  const onlyVol = only ? volunteers.find((v) => v.email.toLowerCase() === only) : undefined;
+  if (only && !onlyVol) throw new Error(`No volunteer with email ${only}`);
   const all = (assignRes.data ?? []) as AssignmentRow[];
-  const keep = all.filter((a) => !inWindow.has(a.shift_id));
+  const clears = (a: AssignmentRow) => inWindow.has(a.shift_id) && (!onlyVol || a.volunteer_id === onlyVol.id);
+  const keep = all.filter((a) => !clears(a));
   const dropped = all.length - keep.length;
 
   if (inWindow.size > 0) {
-    const { error } = await db.from('shift_volunteers').delete().in('shift_id', [...inWindow]);
+    let q = db.from('shift_volunteers').delete().in('shift_id', [...inWindow]);
+    if (onlyVol) q = q.eq('volunteer_id', onlyVol.id);
+    const { error } = await q;
     if (error) throw new Error(`clear failed: ${error.message}`);
   }
   console.log(`Cleared ${dropped} assignments in ${from} → ${to}.`);
@@ -76,8 +87,8 @@ async function main() {
     availability: (availabilityRes.data ?? []) as AvailabilityRow[],
     blackouts: (blackoutsRes.data ?? []) as BlackoutRow[],
     fixedShifts: (fixedRes.data ?? []) as FixedShiftRow[],
-    volunteers: (volunteersRes.data ?? []) as RosterVolunteer[],
-    eligible: flexibleOnly ? (v) => v.backfill : undefined,
+    volunteers,
+    eligible: (v) => (!flexibleOnly || v.backfill) && (!onlyVol || v.id === onlyVol.id),
     newId: () => randomUUID(),
   });
   for (let i = 0; i < plan.shiftInserts.length; i += 200) {
@@ -93,7 +104,7 @@ async function main() {
     `Redrew ${from} → ${to}${flexibleOnly ? ' (flexible people only)' : ''}: ${schoolDays} school days, ` +
       `${assignments} assignments, ${openSlots} open slots, ${emptyShifts} shifts with nobody.`,
   );
-  const nameById = new Map(((volunteersRes.data ?? []) as RosterVolunteer[]).map((v) => [v.id, v]));
+  const nameById = new Map(volunteers.map((v) => [v.id, v]));
   const shiftById = new Map(shifts.map((s) => [s.id, s]));
   const byDate = new Map<string, string[]>();
   for (const a of plan.assignmentInserts) {

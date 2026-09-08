@@ -14,6 +14,8 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 const URGENT_DAYS = 7;
+// Automatic cover emails to volunteers are off unless AUTO_COVER_REQUESTS is "true".
+const AUTO_COVER = Deno.env.get('AUTO_COVER_REQUESTS') === 'true';
 
 // ---- Google auth + mail helpers (duplicated per function; functions are standalone) ----
 function pemToArrayBuffer(pem: string): ArrayBuffer {
@@ -217,7 +219,8 @@ Deno.serve(async (req) => {
     }
 
     // 3. Urgent → ask people who could cover.
-    const urgent = daysUntil(date) <= URGENT_DAYS;
+    const soon = daysUntil(date) <= URGENT_DAYS;
+    const urgent = soon && AUTO_COVER;
     let coverSent = 0;
     if (urgent) {
       const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/cover-requests`, {
@@ -252,7 +255,9 @@ Deno.serve(async (req) => {
         '',
         urgent
           ? `This is within ${URGENT_DAYS} days, so volunteers who are available have been asked to cover.`
-          : 'This is more than a week out — the Sunday-night gap check will handle it.',
+          : soon
+            ? `This is within ${URGENT_DAYS} days. Automatic cover requests are off — find cover by hand if needed.`
+            : 'This is more than a week out — the Sunday-night gap check will handle it.',
         '',
         `Schedule: ${SITE}/admin/schedule`,
       ].join('\n'),

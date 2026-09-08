@@ -185,7 +185,14 @@ Deno.serve(async (req) => {
       const { data: adminRow } = await db.from('admins').select('user_id').eq('user_id', userData.user.id).maybeSingle();
       if (!adminRow) return json(403, { error: 'Admins only.' });
     }
-    const body = (await req.json().catch(() => ({}))) as { confirm?: boolean; email?: string; limit?: number };
+    const body = (await req.json().catch(() => ({}))) as {
+      confirm?: boolean;
+      email?: string;
+      limit?: number;
+      /** Email guests about cancelled events. Off by default — the coordinator prefers silent cancellations. */
+      notifyCancellations?: boolean;
+    };
+    const cancelUpdates = body.notifyCancellations === true ? 'all' : 'none';
     const confirm = body.confirm === true;
     // Per-call cap so a big first send fits the function's time budget; callers loop until 0 remain.
     const limit = Math.max(1, Math.min(Number(body.limit ?? 60), 200));
@@ -262,7 +269,7 @@ Deno.serve(async (req) => {
     }
     for (const [, g] of toDelete) {
       if (budget-- <= 0) break;
-      await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=all`, { method: 'DELETE' }).catch(() => {});
+      await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=${cancelUpdates}`, { method: 'DELETE' }).catch(() => {});
       done.cancelled++;
     }
     const remaining = plan.create + plan.update + plan.cancel - done.created - done.updated - done.cancelled;
