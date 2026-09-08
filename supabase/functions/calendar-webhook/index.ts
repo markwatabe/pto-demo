@@ -163,6 +163,33 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
     extendedProperties: { private: { managedBy: INVITE_MARKER, ptoKey: `${v.id}|${date}|${kind}`, email: v.email } },
   };
 }
+/**
+ * A decline means "not that day": record a one-day blackout so a re-run of
+ * the generator can't put them back on it. Idempotent per volunteer+date.
+ */
+async function blackoutForDecline(
+  // deno-lint-ignore no-explicit-any
+  db: any,
+  volunteerId: string,
+  date: string,
+  reason: string,
+): Promise<void> {
+  const { data: existing } = await db
+    .from('volunteer_blackouts')
+    .select('id')
+    .eq('volunteer_id', volunteerId)
+    .lte('starts_on', date)
+    .gte('ends_on', date)
+    .is('weekday', null)
+    .limit(1);
+  if (existing && existing.length > 0) return;
+  await db.from('volunteer_blackouts').insert({
+    volunteer_id: volunteerId,
+    starts_on: date,
+    ends_on: date,
+    note: reason,
+  });
+}
 // ---- end helpers ----
 
 type GoogleEvent = {
@@ -284,6 +311,10 @@ async function handleDecline(
       const out = await res.json().catch(() => ({}));
       coverSent[r.slot] = Number(out.sent ?? 0);
     }
+  }
+
+  if (volunteer) {
+    await blackoutForDecline(client, volunteer.id, date, `Declined the ${kind} invite (calendar)`);
   }
 
   await client.from('shift_declines').insert(
