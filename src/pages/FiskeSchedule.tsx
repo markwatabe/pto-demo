@@ -44,7 +44,11 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 
 type Day = {
   date: string;
-  shifts: { slot: Slot; people: { name: string; me: boolean }[] }[];
+  shifts: {
+    slot: Slot;
+    people: { name: string; me: boolean; accepted: boolean }[];
+    declined: string[];
+  }[];
 };
 
 const SLOT_NAME: Record<Slot, string> = { early: 'Early', late: 'Late' };
@@ -71,18 +75,33 @@ function shortName(name: string): string {
 
 // Badge-styled pill (same design-system classes) that can shrink and
 // ellipsize its name — the atoms Badge can't be width-constrained.
-function Pill({ me, name }: { me: boolean; name: string }) {
+// RSVP status drives the color: accepted = green ✓, declined = red 👎,
+// no response = neutral (or primary when it's you).
+function Pill({
+  me = false,
+  name,
+  status = 'none',
+}: {
+  me?: boolean;
+  name: string;
+  status?: 'none' | 'accepted' | 'declined';
+}) {
+  const tone =
+    status === 'accepted'
+      ? 'bg-success-soft text-success border-success-soft'
+      : status === 'declined'
+        ? 'bg-danger-soft text-danger border-danger-soft'
+        : me
+          ? 'bg-primary-soft text-primary border-primary-soft'
+          : 'bg-muted text-default border-default';
+  const prefix = status === 'accepted' ? '✓ ' : status === 'declined' ? '👎 ' : '';
   return (
     <span
-      className={`inline-flex items-center px-sm rounded-full border font-sans text-xs font-medium ${
-        me
-          ? 'bg-primary-soft text-primary border-primary-soft'
-          : 'bg-muted text-default border-default'
-      }`}
+      className={`inline-flex items-center px-sm rounded-full border font-sans text-xs font-medium ${tone}`}
       style={{ height: '1.5rem', minWidth: 0, flex: '0 1 auto' }}
     >
       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {me ? `${shortName(name)} (you)` : shortName(name)}
+        {`${prefix}${shortName(name)}${me ? ' (you)' : ''}`}
       </span>
     </span>
   );
@@ -334,7 +353,15 @@ export function FiskeSchedulePage() {
                           <Caption>{SLOT_NAME[shift.slot]}</Caption>
                         </span>
                         {shift.people.map((p) => (
-                          <Pill key={p.name} me={p.me} name={p.name} />
+                          <Pill
+                            key={p.name}
+                            me={p.me}
+                            name={p.name}
+                            status={p.accepted ? 'accepted' : 'none'}
+                          />
+                        ))}
+                        {shift.declined.map((name) => (
+                          <Pill key={`declined-${name}`} name={name} status="declined" />
                         ))}
                         {shift.people.some((p) => p.me) ? (
                           <span

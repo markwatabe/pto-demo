@@ -127,6 +127,9 @@ create table shift_volunteers (
   volunteer_id uuid not null references volunteers (id) on delete cascade,
   -- Attendance: 'scheduled' until an admin marks a past shift.
   status text not null default 'scheduled' check (status in ('scheduled', 'attended', 'missed')),
+  -- True once the volunteer accepted their calendar invite (set by the
+  -- calendar webhook; declines remove the row instead).
+  accepted boolean not null default false,
   primary key (shift_id, volunteer_id)
 );
 

@@ -248,18 +248,53 @@ async function syncCalendar() {
   }
 
   let declines = 0;
+  let accepts = 0;
   for (const ev of changed) {
     const ext = ev.extendedProperties?.private;
     if (!ext || ext.managedBy !== INVITE_MARKER || ev.status === 'cancelled') continue;
     const email = (ext.email ?? '').toLowerCase();
     const attendee = ev.attendees?.find((a) => (a.email ?? '').toLowerCase() === email);
-    if (attendee?.responseStatus !== 'declined') continue;
     const [volunteerId, date, kind] = (ext.ptoKey ?? '').split('|');
     if (!volunteerId || !date || !kind) continue;
-    if (await handleDecline(token, ev.id, volunteerId, email, date, kind as InviteKind)) declines++;
+    if (attendee?.responseStatus === 'declined') {
+      if (await handleDecline(token, ev.id, volunteerId, email, date, kind as InviteKind)) declines++;
+    } else {
+      // Mirror accepted / not-yet-responded onto the assignment rows so the
+      // public schedule can show RSVP status.
+      const accepted = attendee?.responseStatus === 'accepted';
+      if (await setAccepted(volunteerId, date, kind as InviteKind, accepted)) accepts++;
+    }
   }
   if (nextSyncToken) await saveState({ sync_token: nextSyncToken });
-  return { scanned: changed.length, declines, full: !state.sync_token };
+  return { scanned: changed.length, declines, acceptUpdates: accepts, full: !state.sync_token };
+}
+
+/** Returns true if any assignment row changed. */
+async function setAccepted(
+  volunteerId: string,
+  date: string,
+  kind: InviteKind,
+  accepted: boolean,
+): Promise<boolean> {
+  const client = db();
+  const { data: shifts } = await client
+    .from('green_team_shifts')
+    .select('id')
+    .eq('date', date)
+    .in('slot', slotsForKind(kind));
+  if (!shifts || shifts.length === 0) return false;
+  const { data: updated, error } = await client
+    .from('shift_volunteers')
+    .update({ accepted })
+    .eq('volunteer_id', volunteerId)
+    .in(
+      'shift_id',
+      shifts.map((s) => s.id),
+    )
+    .neq('accepted', accepted)
+    .select('shift_id');
+  if (error) throw new Error(`accepted update failed: ${error.message}`);
+  return (updated ?? []).length > 0;
 }
 
 /** Returns true if this decline was new (assignment existed and was removed). */
