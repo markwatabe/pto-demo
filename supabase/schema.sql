@@ -5,6 +5,7 @@
 
 drop trigger if exists on_auth_user_created on auth.users;
 drop table if exists push_subscriptions;
+drop table if exists nudge_log;
 drop table if exists shift_volunteers;
 drop table if exists green_team_shifts;
 drop table if exists availability;
@@ -339,6 +340,18 @@ alter table shift_declines enable row level security;
 -- Dates a volunteer can't do at all (vacations etc.): any number of inclusive
 -- [starts_on, ends_on] windows per person. The scheduler and cover requests
 -- skip them; admins manage them on the Volunteers page.
+-- Accept-or-decline reminder emails sent from /fiske-admin; caps nudges at
+-- one per volunteer+shift per day. Service-role only.
+create table nudge_log (
+  id uuid primary key default gen_random_uuid(),
+  volunteer_id uuid not null references volunteers (id) on delete cascade,
+  date date not null,
+  slot text not null check (slot in ('early', 'late')),
+  sent_at timestamptz not null default now()
+);
+create index nudge_log_lookup_idx on nudge_log (volunteer_id, date, slot);
+alter table nudge_log enable row level security;
+
 create table volunteer_blackouts (
   id uuid primary key default gen_random_uuid(),
   volunteer_id uuid not null references volunteers (id) on delete cascade,

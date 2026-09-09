@@ -19,9 +19,13 @@ export function App() {
   const { isLoading, user, status, isAdmin, refresh } = useAccess();
   const { pathname } = useLocation();
 
-  // Public, login-free view — rendered before any auth gating.
+  // Public, login-free views — rendered before any auth gating.
   if (pathname === '/fiske-schedule') {
     return <FiskeSchedulePage />;
+  }
+  // The coordinator's copy: same schedule plus nudge buttons.
+  if (pathname === '/fiske-admin') {
+    return <FiskeSchedulePage admin />;
   }
 
   if (isLoading) {

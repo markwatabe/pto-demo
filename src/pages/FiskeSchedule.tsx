@@ -118,7 +118,10 @@ function dayLabel(iso: string): string {
 
 const TIMES_LINE = `Early ${clock(SLOT_TIMES.early.start)}–${clock(SLOT_TIMES.early.end)} · Late ${clock(SLOT_TIMES.late.start)}–${clock(SLOT_TIMES.late.end)}`;
 
-export function FiskeSchedulePage() {
+// The coordinator's email — /fiske-admin only works for this identity.
+const COORDINATOR_EMAIL = 'm.watabe@gmail.com';
+
+export function FiskeSchedulePage({ admin = false }: { admin?: boolean }) {
   const [email, setEmail] = useState(readSavedEmail);
   const [emailInput, setEmailInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -128,6 +131,8 @@ export function FiskeSchedulePage() {
   // "date|slot" of the shift whose "Can't make it" is awaiting confirmation / sending.
   const [declineKey, setDeclineKey] = useState<string | null>(null);
   const [declining, setDeclining] = useState(false);
+  // "date|slot|name" of the nudge in flight (admin view).
+  const [nudging, setNudging] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [push, setPush] = useState<PushState>('unsupported');
 
@@ -218,6 +223,28 @@ export function FiskeSchedulePage() {
   useEffect(() => {
     if (email) load(email);
   }, [email, load]);
+
+  async function nudge(date: string, slot: Slot, name: string) {
+    setNudging(`${date}|${slot}|${name}`);
+    setError(null);
+    setNotice(null);
+    const { error: fnError } = await supabase.functions.invoke('nudge-volunteer', {
+      body: { date, slot, name },
+    });
+    setNudging(null);
+    if (fnError) {
+      let message = 'Could not send the nudge. Please try again.';
+      try {
+        const ctx = (fnError as { context?: Response }).context;
+        if (ctx) message = (await ctx.json()).error ?? message;
+      } catch {
+        // keep the generic message
+      }
+      setError(message);
+      return;
+    }
+    setNotice(`Nudged ${shortName(name)} about ${dayLabel(date)} (${SLOT_NAME[slot]}).`);
+  }
 
   async function claim(date: string, slot: Slot) {
     setClaiming(`${date}|${slot}`);
@@ -320,13 +347,30 @@ export function FiskeSchedulePage() {
     );
   }
 
+  if (admin && email !== COORDINATOR_EMAIL) {
+    return (
+      <PageShell width="sm">
+        <Stack gap="lg">
+          <PageHeader
+            eyebrow="Fiske Green Team"
+            title="Coordinator view"
+            description="This page is just for the coordinator."
+          />
+          <Button variant="ghost" onClick={changeEmail}>
+            Switch email
+          </Button>
+        </Stack>
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell width="sm">
       <Stack gap="lg">
         <PageHeader
           eyebrow="Fiske Green Team"
-          title="Upcoming shifts"
-          description={TIMES_LINE}
+          title={admin ? 'Upcoming shifts · coordinator' : 'Upcoming shifts'}
+          description={admin ? `${TIMES_LINE} · Nudge emails a reminder to accept or decline.` : TIMES_LINE}
         />
 
         {error ? <Alert tone="danger" title="Something went wrong" description={error} /> : null}
@@ -353,12 +397,21 @@ export function FiskeSchedulePage() {
                           <Caption>{SLOT_NAME[shift.slot]}</Caption>
                         </span>
                         {shift.people.map((p) => (
-                          <Pill
+                          <span
                             key={p.name}
-                            me={p.me}
-                            name={p.name}
-                            status={p.accepted ? 'accepted' : 'none'}
-                          />
+                            style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}
+                          >
+                            <Pill me={p.me} name={p.name} status={p.accepted ? 'accepted' : 'none'} />
+                            {admin && !p.accepted ? (
+                              <Button
+                                variant="ghost"
+                                onClick={() => nudge(day.date, shift.slot, p.name)}
+                                disabled={nudging !== null}
+                              >
+                                {nudging === `${day.date}|${shift.slot}|${p.name}` ? '…' : 'Nudge'}
+                              </Button>
+                            ) : null}
+                          </span>
                         ))}
                         {shift.declined.map((name) => (
                           <Pill key={`declined-${name}`} name={name} status="declined" />
