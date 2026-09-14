@@ -3,7 +3,7 @@
 // acts on declined per-person invites:
 //   - the volunteer is removed from the shift and their event cancelled,
 //   - the coordinator gets an FYI email,
-//   - if the shift is within URGENT_DAYS, cover-requests emails volunteers
+//   - if the shift is within URGENT_DAYS, cover-requests emails the COORDINATOR the possible covers
 //     who could take it; otherwise the Sunday-night digest picks it up.
 // Also serves Search Console verification (GET) and registers/renews the
 // push channel (action "renew-watch").
@@ -96,6 +96,10 @@ const SLOT_TIMES: Record<string, { start: string; end: string }> = {
 };
 const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
 
+/** RFC 2047-encode a Subject with non-ASCII (the em-dash in dates) so mail clients don't show mojibake. */
+const mimeSubject = (s: string): string =>
+  /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(s)))}?=`;
+
 /** Plain-text email from the Green Team mailbox. */
 async function sendMail(args: { to: string; subject: string; text: string; replyTo?: string }): Promise<void> {
   const token = await googleAccessToken(MAIL_FROM, 'https://www.googleapis.com/auth/gmail.send');
@@ -103,7 +107,7 @@ async function sendMail(args: { to: string; subject: string; text: string; reply
     `From: Fiske Green Team <${MAIL_FROM}>`,
     `To: ${args.to}`,
     args.replyTo ? `Reply-To: ${args.replyTo}` : '',
-    `Subject: ${args.subject}`,
+    `Subject: ${mimeSubject(args.subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
     '',
@@ -349,7 +353,7 @@ async function handleDecline(
         body: JSON.stringify({ action: 'shift', date, slot: r.slot, exclude: email }),
       });
       const out = await res.json().catch(() => ({}));
-      coverSent[r.slot] = Number(out.sent ?? 0);
+      coverSent[r.slot] = Number(out.candidates ?? 0);
     }
   }
 
@@ -373,7 +377,7 @@ async function handleDecline(
   const lines = removed.map(
     (r) =>
       `• ${shortDate(date)} — ${SLOT_LABEL[r.slot]}: now ${r.others.length ? r.others.join(', ') : 'NOBODY'}` +
-      (urgent ? ` (cover request sent to ${coverSent[r.slot] ?? 0} volunteer${coverSent[r.slot] === 1 ? '' : 's'})` : ''),
+      (urgent ? ` (${coverSent[r.slot] ?? 0} possible cover${coverSent[r.slot] === 1 ? '' : 's'} listed in a separate email to you)` : ''),
   );
   await sendMail({
     to: COORDINATOR,
@@ -385,7 +389,7 @@ async function handleDecline(
       ...lines,
       '',
       urgent
-        ? `This is within ${URGENT_DAYS} days, so volunteers who are available have been asked to cover.`
+        ? `This is within ${URGENT_DAYS} days. Volunteers who could cover are listed in a separate email to you — nobody has been contacted.`
         : soon
           ? `This is within ${URGENT_DAYS} days. Automatic cover requests are off — find cover by hand if needed.`
           : 'This is more than a week out — the Sunday-night gap check will handle it.',

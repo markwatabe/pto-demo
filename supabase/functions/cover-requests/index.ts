@@ -1,9 +1,10 @@
-// Emails volunteers who could cover open Green Team shifts, from the shared
-// greenteam@ mailbox, with one-click claim links (claim-link function).
+// Finds volunteers who could cover open Green Team shifts and emails the
+// COORDINATOR the list. Volunteers are never emailed by this function — the
+// coordinator asked for no cover-request emails and no links (2026-09-14;
+// the one-click claim links rendered as raw text in browsers).
 //   {action:"shift", date, slot, exclude?}  one shift, right now (urgent)
-//   {action:"weekly"}                       Sunday-night digest: every gap in
-//                                           the next 14 days, one email per
-//                                           volunteer, plus a coordinator summary
+//   {action:"weekly"}                       Sunday-night gap check: every gap in
+//                                           the next 14 days with possible covers
 // Gated by x-cron-secret = CRON_SECRET (called by pg_cron and calendar-webhook).
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -85,6 +86,10 @@ const SLOT_TIMES: Record<string, { start: string; end: string }> = {
 };
 const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
 
+/** RFC 2047-encode a Subject with non-ASCII (the em-dash in dates) so mail clients don't show mojibake. */
+const mimeSubject = (s: string): string =>
+  /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(s)))}?=`;
+
 /** Plain-text email from the Green Team mailbox. */
 async function sendMail(args: { to: string; subject: string; text: string; replyTo?: string }): Promise<void> {
   const token = await googleAccessToken(MAIL_FROM, 'https://www.googleapis.com/auth/gmail.send');
@@ -92,7 +97,7 @@ async function sendMail(args: { to: string; subject: string; text: string; reply
     `From: Fiske Green Team <${MAIL_FROM}>`,
     `To: ${args.to}`,
     args.replyTo ? `Reply-To: ${args.replyTo}` : '',
-    `Subject: ${args.subject}`,
+    `Subject: ${mimeSubject(args.subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
     '',
@@ -163,15 +168,6 @@ type Volunteer = { id: string; name: string; email: string; veteran: boolean; ba
 type Blackout = { volunteer_id: string; starts_on: string; ends_on: string; weekday: number | null };
 type Shift = { id: string; date: string; slot: string; people: { id: string; veteran: boolean }[] };
 
-async function claimLink(email: string, date: string, slot: string): Promise<string> {
-  const secret = Deno.env.get('CLAIM_LINK_SECRET');
-  if (!secret) throw new Error('Missing CLAIM_LINK_SECRET.');
-  const payload = b64url(JSON.stringify({ e: email, d: date, s: slot, x: Math.floor(Date.parse(date + 'T23:59:00-04:00') / 1000) }));
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = b64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)));
-  return `${Deno.env.get('SUPABASE_URL')}/functions/v1/claim-link?t=${payload}.${sig}`;
-}
-
 async function loadRoster() {
   const client = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const [vRes, aRes, bRes] = await Promise.all([
@@ -228,32 +224,20 @@ async function coverOneShift(date: string, slot: string, exclude?: string) {
   if (shift.people.length >= 2) return { sent: 0, reason: 'shift is full' };
   const who = candidates(shift, volunteers, cells, blackouts, exclude);
   const status = shift.people.length === 0 ? 'nobody is on it' : `only ${shift.people.length} person is on it`;
-  let sent = 0;
-  for (const v of who) {
-    const link = await claimLink(v.email, date, slot);
-    await sendMail({
-      to: v.email,
-      replyTo: COORDINATOR,
-      subject: `Can you cover a Green Team shift? ${shortDate(date)} — ${SLOT_LABEL[slot]}`,
-      text: [
-        `Hi ${v.name.split(' ')[0]},`,
-        '',
-        `A Green Team lunch shift opened up and ${status}:`,
-        '',
-        `    ${shortDate(date)} — ${SLOT_LABEL[slot]}`,
-        '',
-        'You listed this day and time as one you can do. If you can take it, click here and it is yours:',
-        '',
-        `    ${link}`,
-        '',
-        "You'll get a calendar invite right after. If you can't, no need to reply — thank you either way!",
-        '',
-        '— Fiske Green Team',
-      ].join('\n'),
-    });
-    sent++;
-  }
-  return { sent, candidates: who.length, status };
+  await sendMail({
+    to: COORDINATOR,
+    subject: `Cover needed: ${shortDate(date)} — ${SLOT_LABEL[slot]} (${who.length} possible)`,
+    text: [
+      `${shortDate(date)} — ${SLOT_LABEL[slot]}: ${status}.`,
+      '',
+      who.length ? 'Volunteers whose availability fits (not away, not already on it):' : 'Nobody on the roster fits this slot.',
+      ...who.map((v) => `• ${v.name} <${v.email}>${v.backfill ? ' (backfill)' : ''}${v.veteran ? '' : ' (new)'}`),
+      '',
+      'No one has been contacted — reach out to whoever you like.',
+      `Schedule: ${SITE}/admin/schedule`,
+    ].join('\n'),
+  });
+  return { sent: 0, candidates: who.length, status, notified: COORDINATOR };
 }
 
 async function weeklyDigest() {
@@ -264,44 +248,22 @@ async function weeklyDigest() {
   const shifts = await loadShifts(from, to);
   const needsCover = shifts.filter((s) => s.people.length === 0 || !s.people.some((p) => p.veteran));
   const couldUseSecond = shifts.filter((s) => s.people.length === 1 && s.people.some((p) => p.veteran));
-  const gaps = [...needsCover, ...couldUseSecond];
-
-  let emails = 0;
-  const perShiftAsked = new Map<string, number>();
-  for (const v of volunteers) {
-    const mine = gaps.filter((s) => candidates(s, [v], cells, blackouts).length > 0);
-    if (mine.length === 0) continue;
-    const section = async (title: string, list: Shift[]) => {
-      if (list.length === 0) return [];
-      const lines = [title, ''];
-      for (const s of list) {
-        lines.push(`    ${shortDate(s.date)} — ${SLOT_LABEL[s.slot]}`, `    take it: ${await claimLink(v.email, s.date, s.slot)}`, '');
-        perShiftAsked.set(s.id, (perShiftAsked.get(s.id) ?? 0) + 1);
-      }
-      return lines;
-    };
-    const text = [
-      `Hi ${v.name.split(' ')[0]},`,
-      '',
-      'Here are the Green Team lunch shifts in the next two weeks that still need people, on days and times you said you can do. Click a link to take one — you get a calendar invite right after.',
-      '',
-      ...(await section('NEEDS COVER (nobody, or no veteran, on it yet):', mine.filter((s) => needsCover.includes(s)))),
-      ...(await section('COULD USE A SECOND PAIR OF HANDS:', mine.filter((s) => couldUseSecond.includes(s)))),
-      'No pressure if none of these work — thank you for volunteering!',
-      '',
-      '— Fiske Green Team',
-    ].join('\n');
-    await sendMail({ to: v.email, replyTo: COORDINATOR, subject: 'Green Team: open lunch shifts in the next two weeks', text });
-    emails++;
-  }
 
   const summary = (list: Shift[]) =>
-    list.length ? list.map((s) => `• ${shortDate(s.date)} — ${SLOT_LABEL[s.slot]} (${s.people.length} on it, asked ${perShiftAsked.get(s.id) ?? 0})`) : ['• none'];
+    list.length
+      ? list.flatMap((s) => {
+          const who = candidates(s, volunteers, cells, blackouts);
+          return [
+            `• ${shortDate(s.date)} — ${SLOT_LABEL[s.slot]} (${s.people.length} on it)`,
+            `    could cover: ${who.length ? who.map((v) => v.name).join(', ') : 'nobody fits'}`,
+          ];
+        })
+      : ['• none'];
   await sendMail({
     to: COORDINATOR,
     subject: `Green Team gap check: ${needsCover.length} need cover, ${couldUseSecond.length} could use a second (${from} → ${to})`,
     text: [
-      `Sunday check for ${from} through ${to}. ${emails} volunteer digest${emails === 1 ? '' : 's'} sent.`,
+      `Sunday check for ${from} through ${to}. No volunteers were emailed.`,
       '',
       'NEEDS COVER:',
       ...summary(needsCover),
@@ -312,7 +274,7 @@ async function weeklyDigest() {
       `Schedule: ${SITE}/admin/schedule`,
     ].join('\n'),
   });
-  return { from, to, needsCover: needsCover.length, couldUseSecond: couldUseSecond.length, volunteerEmails: emails };
+  return { from, to, needsCover: needsCover.length, couldUseSecond: couldUseSecond.length, volunteerEmails: 0 };
 }
 
 Deno.serve(async (req) => {

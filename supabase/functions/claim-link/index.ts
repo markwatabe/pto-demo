@@ -78,6 +78,10 @@ const SLOT_TIMES: Record<string, { start: string; end: string }> = {
 };
 const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
 
+/** RFC 2047-encode a Subject with non-ASCII (the em-dash in dates) so mail clients don't show mojibake. */
+const mimeSubject = (s: string): string =>
+  /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(s)))}?=`;
+
 /** Plain-text email from the Green Team mailbox. */
 async function sendMail(args: { to: string; subject: string; text: string; replyTo?: string }): Promise<void> {
   const token = await googleAccessToken(MAIL_FROM, 'https://www.googleapis.com/auth/gmail.send');
@@ -85,7 +89,7 @@ async function sendMail(args: { to: string; subject: string; text: string; reply
     `From: Fiske Green Team <${MAIL_FROM}>`,
     `To: ${args.to}`,
     args.replyTo ? `Reply-To: ${args.replyTo}` : '',
-    `Subject: ${args.subject}`,
+    `Subject: ${mimeSubject(args.subject)}`,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
     '',
