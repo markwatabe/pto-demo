@@ -202,7 +202,7 @@ Deno.serve(async (req) => {
     const cancelUpdates = body.notifyCancellations === true ? 'all' : 'none';
     const confirm = body.confirm === true;
     // Per-call cap so a big first send fits the function's time budget; callers loop until 0 remain.
-    const limit = Math.max(1, Math.min(Number(body.limit ?? 60), 200));
+    const limit = Math.max(1, Math.min(Number(body.limit ?? 40), 200));
     const onlyEmail = body.email?.toLowerCase();
 
     // Desired: one event per volunteer per day, from today onward.
@@ -258,7 +258,7 @@ Deno.serve(async (req) => {
     const toDelete = [...existing].filter(([k, g]) => !desired.has(k) && (g.start?.dateTime ?? '') >= today);
 
     const plan = { create: toCreate.length, update: toUpdate.length, cancel: toDelete.length, personDays: byPerson.size };
-    if (!confirm) return json(200, { dryRun: true, ...plan, hint: 'POST {"confirm":true} to send (batches of `limit`, default 60).' });
+    if (!confirm) return json(200, { dryRun: true, ...plan, hint: 'POST {"confirm":true} to send (batches of `limit`, default 40).' });
 
     let budget = limit;
     const done = { created: 0, updated: 0, cancelled: 0 };
