@@ -19,8 +19,8 @@ const TZ = 'America/New_York';
 const MANAGED = 'pto-demo';
 // Mirrors SLOT_TIMES in src/schedule.ts — keep the two in sync.
 const SLOT_TIMES: Record<string, { start: string; end: string }> = {
-  early: { start: '11:05', end: '12:15' },
-  late: { start: '12:20', end: '13:30' },
+  early: { start: '11:10', end: '12:20' },
+  late: { start: '12:20', end: '13:45' },
 };
 const SLOT_LABEL: Record<string, string> = { early: 'Early', late: 'Late' };
 
@@ -115,7 +115,7 @@ function nextDay(iso: string): string {
 }
 
 // Google echoes dateTime in the event's zone with an offset
-// ("2026-09-08T11:05:00-04:00"); our naive local string is its prefix.
+// ("2026-09-08T11:10:00-04:00"); our naive local string is its prefix.
 function matches(g: GoogleEvent, d: DesiredEvent): boolean {
   if ((g.summary ?? '') !== d.summary) return false;
   if (d.start.date) return g.start?.date === d.start.date && g.end?.date === d.end.date;

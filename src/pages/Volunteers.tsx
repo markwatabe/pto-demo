@@ -58,7 +58,7 @@ function fixedLabel(rows: FixedShiftRow[]): string {
     .join(' · ');
 }
 
-// "Mon E/L · Thu E" — E = early (11:05–12:15), L = late (12:20–1:30).
+// "Mon E/L · Thu E" — E = early/morning (11:10–12:20), L = late/afternoon (12:20–1:45).
 function availabilityLabel(rows: AvailabilityRow[]): string {
   const byDay = new Map<number, Set<string>>();
   for (const r of rows) {

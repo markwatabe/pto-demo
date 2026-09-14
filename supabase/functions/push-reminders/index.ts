@@ -12,8 +12,8 @@ const json = (status: number, body: unknown) =>
 
 // Mirrors SLOT_TIMES / labels in src/schedule.ts.
 const SLOT_TEXT: Record<string, string> = {
-  early: 'Early shift 11:05–12:15',
-  late: 'Late shift 12:20–1:30',
+  early: 'Morning shift 11:10–12:20',
+  late: 'Afternoon shift 12:20–1:45',
 };
 
 function b64uDecode(s: string): Uint8Array {

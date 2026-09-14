@@ -9,13 +9,13 @@ export const SLOTS: readonly Slot[] = ['early', 'late'] as const;
 
 /** The single source of truth for shift clock times (local school time). */
 export const SLOT_TIMES: Record<Slot, { start: string; end: string }> = {
-  early: { start: '11:05', end: '12:15' },
-  late: { start: '12:20', end: '13:30' },
+  early: { start: '11:10', end: '12:20' },
+  late: { start: '12:20', end: '13:45' },
 };
 
 export const SLOT_LABEL: Record<Slot, string> = {
-  early: 'Early (11:05–12:15)',
-  late: 'Late (12:20–1:30)',
+  early: 'Morning (11:10–12:20)',
+  late: 'Afternoon (12:20–1:45)',
 };
 
 export type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'custom';

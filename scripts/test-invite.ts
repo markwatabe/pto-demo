@@ -46,6 +46,11 @@ function nextWeekSchoolDays(closures: ReadonlySet<string>): string[] {
 
 // Google Calendar event colors: 5 Banana (yellow), 8 Graphite (gray), 10 Basil (green).
 const KIND_COLOR: Record<Kind, string> = { early: '5', late: '8', 'both shifts': '10' };
+const KIND_DETAIL: Record<Kind, string> = {
+  early: 'morning lunch 11:10–12:20 (grades K, 2, 4, 5)',
+  late: 'afternoon lunch 12:20–1:45 (grades K, 1, 3)',
+  'both shifts': 'full shift 11:10–1:45 (all grades)',
+};
 
 type Event = {
   ptoKey: string;
@@ -63,7 +68,7 @@ function eventFor(name: string, date: string, kind: Kind, volunteerId: string): 
     summary: `${name}: Fiske Green Team (${kind})`,
     colorId: KIND_COLOR[kind],
     description: [
-      'Your Green Team lunch shift at Fiske.',
+      `Your Green Team lunch shift at Fiske — ${KIND_DETAIL[kind]}.`,
       '',
       'Please ACCEPT this invitation once you know you can make it, and DECLINE as soon as you know you cannot — declining takes you off the shift right away so we can find cover.',
     ].join('\n'),

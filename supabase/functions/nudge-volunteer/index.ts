@@ -66,7 +66,7 @@ async function googleAccessToken(sub: string, scope: string): Promise<string> {
 const MAIL_FROM = Deno.env.get('MAIL_FROM_EMAIL') ?? 'greenteam@fiskeschoolpto.org';
 const COORDINATOR = Deno.env.get('DECLINE_NOTIFY_EMAIL') ?? 'mwatabe@fiskeschoolpto.org';
 const TZ = 'America/New_York';
-const SLOT_LABEL: Record<string, string> = { early: 'Early (11:05–12:15)', late: 'Late (12:20–1:30)' };
+const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
 
 async function sendMail(args: { to: string; subject: string; text: string }): Promise<void> {
   const token = await googleAccessToken(MAIL_FROM, 'https://www.googleapis.com/auth/gmail.send');

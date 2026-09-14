@@ -84,10 +84,10 @@ const SITE = Deno.env.get('PUBLIC_SITE_URL') ?? 'https://pto-demo.onrender.com';
 const TZ = 'America/New_York';
 const INVITE_MARKER = 'pto-demo-invite';
 const SLOT_TIMES: Record<string, { start: string; end: string }> = {
-  early: { start: '11:05', end: '12:15' },
-  late: { start: '12:20', end: '13:30' },
+  early: { start: '11:10', end: '12:20' },
+  late: { start: '12:20', end: '13:45' },
 };
-const SLOT_LABEL: Record<string, string> = { early: 'Early (11:05–12:15)', late: 'Late (12:20–1:30)' };
+const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
 
 /** Plain-text email from the Green Team mailbox. */
 async function sendMail(args: { to: string; subject: string; text: string; replyTo?: string }): Promise<void> {
@@ -138,6 +138,11 @@ const slotsForKind = (kind: InviteKind): string[] => (kind === 'both shifts' ? [
 /** Body of a per-person invite event: "{name}: Fiske Green Team ({kind})" with the volunteer as guest. */
 // Google Calendar event colors: 5 Banana (yellow), 8 Graphite (gray), 10 Basil (green).
 const KIND_COLOR: Record<InviteKind, string> = { early: '5', late: '8', 'both shifts': '10' };
+const KIND_DETAIL: Record<InviteKind, string> = {
+  early: 'morning lunch 11:10–12:20 (grades K, 2, 4, 5)',
+  late: 'afternoon lunch 12:20–1:45 (grades K, 1, 3)',
+  'both shifts': 'full shift 11:10–1:45 (all grades)',
+};
 
 function inviteEventBody(v: { id: string; name: string; email: string }, date: string, kind: InviteKind) {
   const slots = slotsForKind(kind);
@@ -145,7 +150,7 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
     summary: `${v.name}: Fiske Green Team (${kind})`,
     colorId: KIND_COLOR[kind],
     description: [
-      'Your Green Team lunch shift at Fiske.',
+      `Your Green Team lunch shift at Fiske — ${KIND_DETAIL[kind]}.`,
       '',
       'Please ACCEPT this invitation once you know you can make it, and DECLINE as soon as you know you cannot — declining takes you off the shift right away so we can find cover.',
     ].join('\n'),
@@ -191,6 +196,8 @@ Deno.serve(async (req) => {
       limit?: number;
       /** Email guests about cancelled events. Off by default — the coordinator prefers silent cancellations. */
       notifyCancellations?: boolean;
+      /** Email guests about time/title changes. Off by default — the coordinator announces changes separately. */
+      notifyChanges?: boolean;
     };
     const cancelUpdates = body.notifyCancellations === true ? 'all' : 'none';
     const confirm = body.confirm === true;
@@ -263,7 +270,7 @@ Deno.serve(async (req) => {
     for (const [k, d] of toUpdate) {
       if (budget-- <= 0) break;
       // A wording-only change is patched silently; a time/title change re-notifies the guest.
-      const notify = sameTime(existing.get(k)!, d) ? 'none' : 'all';
+      const notify = body.notifyChanges === true && !sameTime(existing.get(k)!, d) ? 'all' : 'none';
       await gfetch(token, `${calendarBase()}/${existing.get(k)!.id}?sendUpdates=${notify}`, { method: 'PATCH', body: JSON.stringify(d) });
       done.updated++;
     }

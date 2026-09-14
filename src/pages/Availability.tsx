@@ -38,8 +38,8 @@ const WEEKDAYS = [
 ] as const;
 
 const SLOTS = [
-  { slot: 'early', label: 'Early (11:05–12:15)' },
-  { slot: 'late', label: 'Late (12:20–1:30)' },
+  { slot: 'early', label: 'Morning (11:10–12:20)' },
+  { slot: 'late', label: 'Afternoon (12:20–1:45)' },
 ] as const;
 
 const FREQUENCIES: Array<{ value: Frequency; label: string }> = [
