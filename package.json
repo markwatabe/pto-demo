@@ -15,7 +15,8 @@
     "fetch:volunteers": "tsx scripts/fetch-volunteers.ts && tsx scripts/import-volunteers.ts",
     "test:invite": "tsx scripts/test-invite.ts",
     "deploy:functions": "tsx scripts/deploy-functions.ts",
-    "fill:gaps": "tsx scripts/fill-gaps.ts"
+    "fill:gaps": "tsx scripts/fill-gaps.ts",
+    "sheet2:refresh": "tsx scripts/refresh-sheet2.ts"
   },
   "dependencies": {
     "@apygee/atoms": "^0.9.0",
