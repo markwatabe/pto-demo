@@ -5,6 +5,7 @@
  *   pnpm fill:gaps --apply               # write assignments + send their invites
  *   pnpm fill:gaps --who all             # also let under-used existing volunteers take seats
  *   pnpm fill:gaps --skip a@x.com,b@y.com
+ *   pnpm fill:gaps --only a@x.com,b@y.com   # just these people (frozen otherwise)
  *
  * Default (--who unassigned): only volunteers with no future assignments are
  * placed. Existing assignments, blackouts (including every recorded decline
@@ -29,6 +30,7 @@ const APPLY = process.argv.includes('--apply');
 const arg = (n: string) => { const i = process.argv.indexOf(n); return i === -1 ? undefined : process.argv[i + 1]; };
 const WHO = arg('--who') ?? 'unassigned';
 const SKIP = new Set((arg('--skip') ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+const ONLY = new Set((arg('--only') ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
 
 const url = process.env.VITE_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -68,7 +70,7 @@ async function main() {
   const eligibleIds = new Set(
     volunteers
       .filter((v) => !SKIP.has(v.email.toLowerCase()))
-      .filter((v) => (WHO === 'all' ? true : (futureCount.get(v.id) ?? 0) === 0))
+      .filter((v) => (ONLY.size ? ONLY.has(v.email.toLowerCase()) : WHO === 'all' ? true : (futureCount.get(v.id) ?? 0) === 0))
       .map((v) => v.id),
   );
 
@@ -93,7 +95,7 @@ async function main() {
     byPerson.set(a.volunteer_id, [...(byPerson.get(a.volunteer_id) ?? []), s]);
   }
   const emptyBefore = shifts.filter((s) => s.date >= from && !existing.some((a) => a.shift_id === s.id)).length;
-  console.log(`${from} → ${to} | eligible: ${eligibleIds.size} volunteer(s) (${WHO}) | new assignments: ${plan.assignmentInserts.length} | shifts with nobody: ${emptyBefore} → ${plan.summary.emptyShifts}`);
+  console.log(`${from} → ${to} | eligible: ${eligibleIds.size} volunteer(s) (${ONLY.size ? 'only' : WHO}) | new assignments: ${plan.assignmentInserts.length} | shifts with nobody: ${emptyBefore} → ${plan.summary.emptyShifts}`);
   for (const [vid, list] of [...byPerson].sort((a, b) => nameOf.get(a[0])!.name.localeCompare(nameOf.get(b[0])!.name))) {
     const v = nameOf.get(vid)!;
     console.log(`  ${v.name.padEnd(18)} ${(v.veteran ? 'vet' : 'new').padEnd(4)} +${String(list.length).padStart(2)}: ${list.sort((a, b) => a.date.localeCompare(b.date)).map((s) => `${s.date.slice(5)}${s.slot[0]!.toUpperCase()}`).join(' ')}`);

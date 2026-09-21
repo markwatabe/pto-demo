@@ -111,7 +111,7 @@ function slotsFor(cell: string | undefined): string[] {
 function frequencyFor(cell: string | undefined): { frequency: string; note: string | null } {
   const text = (cell ?? '').trim();
   if (text === 'Once a week') return { frequency: 'weekly', note: null };
-  if (text === 'Every other week' || text === 'Every two weeks') {
+  if (text === 'Every other week' || text === 'Every two weeks' || text === 'Twice a month') {
     return { frequency: 'biweekly', note: null };
   }
   if (text === 'Once a month') return { frequency: 'monthly', note: null };
