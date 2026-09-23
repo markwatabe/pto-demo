@@ -18,6 +18,8 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import {
   buildDraft,
+  earliestAssignableDate,
+  MIN_LEAD_DAYS,
   type AssignmentRow,
   type AvailabilityRow,
   type BlackoutRow,
@@ -38,8 +40,6 @@ if (!url) throw new Error('Missing VITE_SUPABASE_URL in .env');
 if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY in .env');
 const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-const todayNY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-const addDays = (iso: string, n: number) => new Date(Date.parse(iso + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
 
 async function main() {
   const rs = await Promise.all([
@@ -56,7 +56,8 @@ async function main() {
   const [yearRes, shiftsRes, closuresRes, volsRes, availRes, blackRes, fixedRes, assignRes] = rs;
   const year = yearRes.data as { starts_on: string; ends_on: string } | null;
   if (!year) throw new Error('No school year set.');
-  const from = addDays(todayNY(), 1);
+  // Nothing lands on a shift with less than MIN_LEAD_DAYS notice.
+  const from = earliestAssignableDate();
   const to = year.ends_on;
 
   type Vol = RosterVolunteer & { email: string };
@@ -95,7 +96,7 @@ async function main() {
     byPerson.set(a.volunteer_id, [...(byPerson.get(a.volunteer_id) ?? []), s]);
   }
   const emptyBefore = shifts.filter((s) => s.date >= from && !existing.some((a) => a.shift_id === s.id)).length;
-  console.log(`${from} → ${to} | eligible: ${eligibleIds.size} volunteer(s) (${ONLY.size ? 'only' : WHO}) | new assignments: ${plan.assignmentInserts.length} | shifts with nobody: ${emptyBefore} → ${plan.summary.emptyShifts}`);
+  console.log(`${from} → ${to} (${MIN_LEAD_DAYS}-day minimum notice) | eligible: ${eligibleIds.size} volunteer(s) (${ONLY.size ? 'only' : WHO}) | new assignments: ${plan.assignmentInserts.length} | shifts with nobody: ${emptyBefore} → ${plan.summary.emptyShifts}`);
   for (const [vid, list] of [...byPerson].sort((a, b) => nameOf.get(a[0])!.name.localeCompare(nameOf.get(b[0])!.name))) {
     const v = nameOf.get(vid)!;
     console.log(`  ${v.name.padEnd(18)} ${(v.veteran ? 'vet' : 'new').padEnd(4)} +${String(list.length).padStart(2)}: ${list.sort((a, b) => a.date.localeCompare(b.date)).map((s) => `${s.date.slice(5)}${s.slot[0]!.toUpperCase()}`).join(' ')}`);

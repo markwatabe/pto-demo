@@ -17,6 +17,8 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import {
   buildDraft,
+  earliestAssignableDate,
+  MIN_LEAD_DAYS,
   type AssignmentRow,
   type AvailabilityRow,
   type BlackoutRow,
@@ -29,8 +31,14 @@ const arg = (name: string) => {
   const i = process.argv.indexOf(name);
   return i === -1 ? undefined : process.argv[i + 1];
 };
-const from = arg('--from');
+const requestedFrom = arg('--from');
 const to = arg('--to');
+// Never redraw shifts closer than MIN_LEAD_DAYS — people need notice.
+const from =
+  requestedFrom && requestedFrom < earliestAssignableDate() ? earliestAssignableDate() : requestedFrom;
+if (requestedFrom && from !== requestedFrom) {
+  console.log(`--from ${requestedFrom} moved to ${from}: ${MIN_LEAD_DAYS}-day minimum notice.`);
+}
 const flexibleOnly = process.argv.includes('--flexible-only');
 const only = arg('--only')?.toLowerCase();
 if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {

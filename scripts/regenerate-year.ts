@@ -15,6 +15,8 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import {
   buildDraft,
+  earliestAssignableDate,
+  MIN_LEAD_DAYS,
   type AssignmentRow,
   type AvailabilityRow,
   type BlackoutRow,
@@ -69,20 +71,29 @@ async function main() {
 
   const existingShifts = (shiftsRes.data ?? []) as ShiftRow[];
 
-  // Wipe every assignment (the whole year is being redrawn).
-  const { error: wipeError, count } = await db
-    .from('shift_volunteers')
-    .delete({ count: 'exact' })
-    .gte('shift_id', '00000000-0000-0000-0000-000000000000');
-  if (wipeError) throw new Error(`Assignment wipe failed: ${wipeError.message}`);
-  console.log(`Cleared ${count ?? '?'} existing assignments.`);
+  // Wipe assignments from the earliest assignable date on (shifts inside the
+  // notice window keep their people — nobody gets a surprise shift).
+  const from = year.starts_on < earliestAssignableDate() ? earliestAssignableDate() : year.starts_on;
+  if (from !== year.starts_on) console.log(`Redrawing from ${from} (${MIN_LEAD_DAYS}-day minimum notice); earlier shifts are left as they are.`);
+  const wipeIds = existingShifts.filter((s) => s.date >= from).map((s) => s.id);
+  let count = 0;
+  for (let i = 0; i < wipeIds.length; i += 200) {
+    const { error: wipeError, count: n } = await db
+      .from('shift_volunteers')
+      .delete({ count: 'exact' })
+      .in('shift_id', wipeIds.slice(i, i + 200));
+    if (wipeError) throw new Error(`Assignment wipe failed: ${wipeError.message}`);
+    count += n ?? 0;
+  }
+  console.log(`Cleared ${count} assignments from ${from} on.`);
+  const { data: keptRows } = await db.from('shift_volunteers').select('shift_id, volunteer_id');
 
   const plan = buildDraft({
-    from: year.starts_on,
+    from,
     to: year.ends_on,
     closures: new Set(((closuresRes.data ?? []) as { date: string }[]).map((c) => c.date)),
     existingShifts,
-    existingAssignments: [] as AssignmentRow[],
+    existingAssignments: (keptRows ?? []) as AssignmentRow[],
     availability: (availabilityRes.data ?? []) as AvailabilityRow[],
     blackouts: (blackoutsRes.data ?? []) as BlackoutRow[],
     fixedShifts: (fixedRes.data ?? []) as FixedShiftRow[],

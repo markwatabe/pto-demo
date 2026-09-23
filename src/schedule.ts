@@ -49,6 +49,16 @@ export type AssignmentRow = { shift_id: string; volunteer_id: string };
 
 export const TRAILING_WINDOW_DAYS = 28;
 
+/** Never hand someone a new shift with less notice than this (coordinator rule, 2026-09-23). */
+export const MIN_LEAD_DAYS = 5;
+
+/** Today in New York plus MIN_LEAD_DAYS — the earliest date a new assignment may land on. */
+export function earliestAssignableDate(now: Date = new Date()): string {
+  const today = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const [y, m, d] = today.split('-').map(Number);
+  return isoDate(new Date(y!, m! - 1, d! + MIN_LEAD_DAYS));
+}
+
 /** "2026-09-08" -> local-midnight Date. */
 export function toLocalDate(iso: string): Date {
   const [y, m, d] = iso.split('-').map(Number);
