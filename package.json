@@ -23,7 +23,8 @@
     "rerender:new-shifts": "tsx scripts/rerender-new-shifts.ts",
     "text:new-shifts": "tsx scripts/new-shifts-text.ts",
     "emails:weekly": "tsx scripts/weekly-shift-emails.ts",
-    "apply:new-shifts": "tsx scripts/apply-new-shifts.ts"
+    "apply:new-shifts": "tsx scripts/apply-new-shifts.ts",
+    "sync:invites": "tsx scripts/sync-invites.ts"
   },
   "dependencies": {
     "@apygee/atoms": "^0.9.0",
