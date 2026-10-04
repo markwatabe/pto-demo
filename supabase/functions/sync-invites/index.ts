@@ -2,7 +2,8 @@
 // calendar in step with the schedule: "{name}: Fiske Green Team (First
 // shift)" with the volunteer as guest. Creates, updates and cancels for every
 // assignment from today onward. An invite is matched by person and day, so a
-// changed shift updates the same event and the guest's RSVP carries over.
+// changed shift updates the same event (Google still resets the guest's RSVP
+// when the time changes).
 //
 // DRY RUN unless body.confirm === true — creating invites emails every
 // volunteer, so the first run for a real roster is deliberate.
@@ -310,7 +311,7 @@ Deno.serve(async (req) => {
       // A wording-only change is patched silently; a time/title change re-notifies the guest.
       const g = existing.get(k)!;
       const notify = body.notifyChanges === true && !sameTime(g, d) ? 'all' : 'none';
-      // Leave the guest list alone when the guest is unchanged, so their RSVP is kept.
+      // Leave the guest list alone when the guest is unchanged (a wording-only change keeps their RSVP).
       const { attendees, ...rest } = d;
       const sameGuest = (g.extendedProperties?.private?.email ?? '').toLowerCase() === attendees[0]!.email.toLowerCase();
       await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=${notify}`, { method: 'PATCH', body: JSON.stringify(sameGuest ? rest : d) });

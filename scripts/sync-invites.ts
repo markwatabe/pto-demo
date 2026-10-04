@@ -1,7 +1,7 @@
 /**
  * Bring every volunteer's Google Calendar invites in line with the database
  * (the sync-invites edge function: one invite per person per day, matched by
- * person and day so a changed shift keeps its RSVP).
+ * person and day; Google resets the guest's RSVP when an invite's time changes).
  *
  * DRY RUN (prints the plan) unless --confirm. New invites always email the
  * guest; --notify also emails guests about time changes and cancellations.
