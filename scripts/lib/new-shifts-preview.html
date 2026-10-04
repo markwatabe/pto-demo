@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fiske Green Team schedule 2026-2027__VERSION__</title>
+<style>
+/* A roster on a light gray page: months down the left, each week a rounded white card, one shared column grid. */
+:root {
+  color-scheme: light;
+  --ink: #000; --page: #eee; --paper: #fff; --stripe: #f6f6f6;
+  --week-line: #c8c8c8; --chip-line: #c4c4c4; --chip-shadow: 0 1px 3px rgb(0 0 0 / 0.22); --confirmed: #0b6bff; --on-confirmed: #fff; --pick: #ff6a00; --on-pick: #fff; --muted: #666;
+  --faint-ink: rgb(0 0 0 / 0.4); --hatch: rgb(0 0 0 / 0.07);
+  --font: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  --month-w: 64px;
+  --cols: 72px minmax(0, 1.5fr) minmax(0, 1.5fr) minmax(0, 1fr);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); background: var(--page); }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.4 var(--font); }
+.layout { display: flex; justify-content: flex-start; align-items: flex-start; gap: 24px; padding-inline: 20px; }
+.wrap { flex: 0 1 1040px; min-width: 0; padding-block: 28px 56px; display: grid; gap: 20px; }
+h1 { font-size: 1.5rem; margin: 0; }
+@media (max-width: 820px) { .scroll { overflow-x: auto; } }
+.sheet { min-width: 760px; display: grid; gap: 16px; }
+
+.head { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; display: grid; grid-template-columns: var(--month-w) 1fr; background: var(--page); border-bottom: 2px solid var(--ink); font-weight: 700; }
+.head > div { padding: 8px 8px; align-self: end; }
+.head .cols { padding: 0 1px; }
+.head .cols > div { padding: 8px 8px; align-self: end; }
+.head span { display: block; font-weight: 400; font-size: 0.8rem; }
+.head span.lunch { font-size: 0.75rem; color: var(--muted); }
+
+.cols { display: grid; grid-template-columns: var(--cols); }
+.month { display: grid; grid-template-columns: var(--month-w) 1fr; }
+.month-label { font-size: 1rem; font-weight: 700; padding: 10px 8px 0; }
+.weeks { display: grid; gap: 16px; }
+.week { background: var(--paper); border: 1px solid var(--week-line); border-radius: 12px; overflow: hidden; }
+
+.row { padding-block: 5px; }
+.row:first-child { padding-top: 10px; }
+.row:last-child { padding-bottom: 10px; }
+.row > div { padding-inline: 8px; min-width: 0; }
+.row.alt { background: var(--stripe); }
+/* No-school days: faded text and light diagonal hatching across the whole row. */
+.row.closed { color: var(--faint-ink); background: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 7px); }
+.row.closed.alt { background: repeating-linear-gradient(135deg, var(--hatch) 0 1px, transparent 1px 7px), var(--stripe); }
+.row.closed .note { grid-column: 2 / -1; font-style: italic; }
+.day { font-weight: 600; font-size: 12px; white-space: nowrap; }
+
+.names { display: flex; flex-wrap: wrap; gap: 5px; }
+.name { display: inline-block; padding: 2px 8px; background: var(--paper); border: 1px solid var(--chip-line); border-radius: 8px; white-space: nowrap; font: inherit; font-size: 13px; color: inherit; line-height: 18px; cursor: pointer; transition: opacity 0.15s; }
+.name:focus-visible { outline: 2px solid var(--pick); outline-offset: 2px; }
+/* Confirmed = accepted their calendar invite. */
+.name.confirmed { background: var(--confirmed); border-color: var(--confirmed); color: var(--on-confirmed); box-shadow: var(--chip-shadow); }
+/* One person picked: their shifts turn orange, everyone else fades. */
+.sheet.focus .name { opacity: 0.25; }
+.sheet.focus .name.sel { opacity: 1; background: var(--pick); border-color: var(--pick); color: var(--on-pick); box-shadow: var(--chip-shadow); }
+
+/* Sidebar: everyone (nothing picked) or the picked person's criteria. */
+.panel { flex: 0 0 320px; position: sticky; box-sizing: border-box; top: 16px; margin-top: 28px; max-height: calc(100vh - 32px); overflow: auto; background: var(--paper); border: 1px solid var(--week-line); border-radius: 12px; padding: 16px 18px 20px; display: grid; gap: 14px; }
+.panel h2 { font-size: 1.2rem; margin: 0; padding-right: 28px; }
+.panel .sub { color: var(--muted); font-size: 0.85rem; margin: 2px 0 0; }
+.panel h3 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 4px; }
+.panel p, .panel ul { margin: 0; }
+.panel ul { padding-left: 1.1em; display: grid; gap: 2px; }
+.panel .grid { display: grid; grid-template-columns: 44px 1fr; gap: 2px 8px; }
+.panel .grid b { font-weight: 600; }
+.panel .muted { color: var(--muted); }
+.panel .shifts { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-variant-numeric: tabular-nums; }
+.panel .close { display: none; position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: 0; border-radius: 6px; background: var(--stripe); font: 18px/1 var(--font); cursor: pointer; }
+.panel button:focus-visible, .open-list:focus-visible { outline: 2px solid var(--pick); outline-offset: 1px; }
+.people { display: grid; gap: 1px; margin-inline: -8px; }
+.person { display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.person:hover { background: var(--stripe); }
+.person .count { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nav { display: flex; align-items: center; gap: 6px; }
+.nav button { padding: 3px 9px; border: 1px solid var(--chip-line); border-radius: 6px; background: var(--paper); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+.nav .pos { margin-left: auto; color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.open-list { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; z-index: 5; padding: 6px 12px; border: 1px solid var(--week-line); border-radius: 8px; background: var(--paper); box-shadow: var(--chip-shadow); font: inherit; cursor: pointer; }
+/* The panel is always there (everyone, or one person), so it sits beside the schedule
+   whenever both fit: 760 sheet + 24 gap + 320 panel + 40 padding. Below that it
+   overlays the schedule and can be closed. */
+@media (max-width: 1144px) {
+  .panel { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(340px, calc(100vw - 24px)); margin: 0; max-height: none; z-index: 5; box-shadow: 0 8px 30px rgb(0 0 0 / 0.2); }
+  .panel .close { display: block; }
+}
+@media (prefers-reduced-motion: reduce) { .name { transition: none; } }
+
+/* Same box height as a name (2px padding + 1px border each side), so every row is equally tall and text lines up. */
+.label { display: inline-block; padding-block: 3px; line-height: 18px; }
+@media (max-width: 560px) { .wrap { padding-inline: 16px; } }
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="wrap">
+    <h1>Fiske Green Team schedule 2026-2027__VERSION__</h1>
+    <div class="scroll"><div class="sheet" id="sheet"></div></div>
+  </div>
+  <aside class="panel" id="panel">
+    <button class="close" id="panel-close" type="button" aria-label="Close">×</button>
+    <div id="panel-body" style="display:grid;gap:14px"></div>
+  </aside>
+</div>
+<button class="open-list" id="open-list" type="button" hidden>Everyone</button>
+
+<script type="application/json" id="data">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById('data').textContent);
+const SHIFTS = ['first', 'second', 'third'];
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const day = (iso) => new Date(iso + 'T12:00:00');
+// Monday of the date's week, as a key for grouping.
+const weekOf = (iso) => { const d = day(iso); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toDateString(); };
+
+// School days and Mon–Thu closures in date order, grouped month -> week.
+// A week that crosses a month boundary goes under the month holding most of
+// its days, i.e. the month of its Wednesday (Nov 30–Dec 3 is December).
+const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+const monthOfWeek = (iso) => { const d = day(iso); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 2); return isoOf(d); };
+const months = [];
+for (const e of [...D.days, ...D.closedDays.map((date) => ({ date, closed: true }))].sort((a, b) => a.date.localeCompare(b.date))) {
+  const week = weekOf(e.date);
+  let month = months[months.length - 1];
+  const lastWeek = month?.weeks[month.weeks.length - 1];
+  if (lastWeek?.key === week) { lastWeek.days.push(e); continue; }
+  if (!month || month.key !== monthOfWeek(e.date)) {
+    month = { key: monthOfWeek(e.date), weeks: [] };
+    months.push(month);
+  }
+  month.weeks.push({ key: week, days: [e] });
+}
+
+const row = (e, i) => {
+  const label = `${day(e.date).toLocaleDateString('en-US', { weekday: 'short' })} ${day(e.date).getDate()}`;
+  const cls = ['row', 'cols', i % 2 ? 'alt' : '', e.closed ? 'closed' : ''].filter(Boolean).join(' ');
+  const cells = e.closed
+    ? '<div class="note"><span class="label">No lunch shift</span></div>'
+    : SHIFTS.map((s) => `<div><div class="names">${e.seats[s].map((p) => `<button type="button" class="name${p.accepted ? ' confirmed' : ''}" data-id="${p.id}">${esc(D.people[p.id]?.name ?? '')}</button>`).join('')}</div></div>`).join('');
+  return `<div class="${cls}"><div class="day"><span class="label">${label}</span></div>${cells}</div>`;
+};
+
+document.getElementById('sheet').innerHTML =
+  `<div class="head"><div>Month</div><div class="cols"><div>Day</div>${SHIFTS.map((s) => `<div>${D.shifts[s].label} shift<span>${D.shifts[s].time}</span>${D.shifts[s].lunches.map((l) => `<span class="lunch">${l.grades} ${l.time}</span>`).join('')}</div>`).join('')}</div></div>` +
+  months.map((m) => `<section class="month"><div class="month-label">${day(m.key + '-01').toLocaleDateString('en-US', { month: 'short' })}</div><div class="weeks">${m.weeks.map((w) => `<div class="week">${w.days.map(row).join('')}</div>`).join('')}</div></section>`).join('');
+// ---- pick a person: highlight their shifts, show their criteria ----
+const sheet = document.getElementById('sheet');
+const panel = document.getElementById('panel');
+const panelBody = document.getElementById('panel-body');
+const WD = ['', 'Mon', 'Tue', 'Wed', 'Thu'];
+const short = (iso) => day(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+const shiftName = (s) => D.shifts[s].label;
+// Everyone on the roster, by name: the list, and the order Prev/Next steps through.
+const order = Object.keys(D.people).sort((a, b) => D.people[a].name.localeCompare(D.people[b].name));
+let selected = null;
+
+function shiftsFor(id) {
+  const out = [];
+  for (const d of D.days) for (const s of SHIFTS) { const p = d.seats[s].find((x) => x.id === id); if (p) out.push({ date: d.date, shift: s, accepted: !!p.accepted, extra: !!p.extra }); }
+  return out;
+}
+
+function canWork(p) {
+  const pr = p.prefs ?? {};
+  const allowed = (s) => (s !== 'third' || p.thirdGrader) && (s !== 'first' || p.fourthOrFifthGrader !== false) && (!pr.only || pr.only.includes(s)) && (!pr.perMonth || (pr.perMonth[s] ?? 0) > 0) && (!pr.together || pr.together.includes(s));
+  return [1, 2, 3, 4].map((wd) => {
+    const slots = p.avail.filter(([w]) => w === wd).map(([, slot]) => slot);
+    const shifts = SHIFTS.filter((s) => slots.includes(s === 'first' ? 'early' : 'late') && allowed(s));
+    const text = pr.together && pr.together.every((s) => shifts.includes(s)) ? pr.together.map(shiftName).join(' + ') + ' together' : shifts.map(shiftName).join(', ');
+    return `<b>${WD[wd]}</b><span class="${text ? '' : 'muted'}">${text || 'not available'}</span>`;
+  }).join('');
+}
+
+// Part-of-year changes, e.g. "Apr 1 – Jun 30: Second shift only".
+function periods(p) {
+  const md = (iso) => day(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return (p.prefs?.periods ?? []).filter((x) => x.only?.length)
+    .map((x) => `<p>${md(x.from)} – ${md(x.to)}: ${x.only.map((s) => `${shiftName(s)} shift`).join(' or ')} only</p>`).join('');
+}
+
+function renderList() {
+  panelBody.innerHTML = `
+    <div>
+      <h2>Everyone</h2>
+      <p class="sub">${order.length} people · pick one to see their shifts</p>
+    </div>
+    <div class="people">${order.map((id) => {
+      const n = shiftsFor(id).length;
+      return `<button type="button" class="person" data-id="${id}"><span>${esc(D.people[id].name)}</span><span class="count">${n} shift${n === 1 ? '' : 's'}</span></button>`;
+    }).join('')}</div>`;
+}
+
+function renderPanel(id) {
+  const p = D.people[id];
+  const mine = shiftsFor(id);
+  const at = order.indexOf(id);
+  panelBody.innerHTML = `
+    <div class="nav">
+      <button type="button" data-nav="list">← Everyone</button>
+      <span class="pos">${at + 1} of ${order.length}</span>
+      <button type="button" data-nav="-1" aria-label="Previous person">‹ Prev</button>
+      <button type="button" data-nav="1" aria-label="Next person">Next ›</button>
+    </div>
+    <div>
+      <h2>${esc(p.name)}</h2>
+      <p class="sub">${esc(p.grades || 'Grades not on file')}</p>
+    </div>
+    <div><h3>How often</h3><p>${esc(p.spacing)}</p></div>
+    <div><h3>Can work</h3><div class="grid">${canWork(p)}</div>${periods(p)}</div>
+    <div><h3>Their shifts</h3>${mine.length ? `<div class="shifts">${mine.map((x) => `<span>${short(x.date)}</span><span>${shiftName(x.shift)}${x.accepted ? ' · accepted' : ''}${x.extra ? ' · by hand' : ''}</span>`).join('')}</div>` : '<p class="muted">None</p>'}</div>`;
+}
+
+const openList = document.getElementById('open-list');
+function showPanel(show) { panel.hidden = !show; openList.hidden = show; }
+
+function pick(id) {
+  const was = selected;
+  selected = id;
+  sheet.classList.toggle('focus', !!id);
+  for (const el of sheet.querySelectorAll('.name')) el.classList.toggle('sel', el.dataset.id === id);
+  showPanel(true);
+  if (id) { renderPanel(id); panel.scrollTop = 0; return; }
+  renderList();
+  // Back on the list: keep your place at the person you were looking at.
+  const back = was && panelBody.querySelector(`.person[data-id="${was}"]`);
+  if (back) { back.scrollIntoView({ block: 'center' }); back.focus({ preventScroll: true }); } else panel.scrollTop = 0;
+}
+// Prev/Next wrap around the list.
+const step = (by) => pick(order[(order.indexOf(selected) + by + order.length) % order.length]);
+
+sheet.addEventListener('click', (e) => {
+  const el = e.target.closest('.name');
+  if (el) pick(selected === el.dataset.id ? null : el.dataset.id);
+});
+panelBody.addEventListener('click', (e) => {
+  const person = e.target.closest('.person');
+  if (person) return pick(person.dataset.id);
+  const nav = e.target.closest('[data-nav]');
+  if (nav) nav.dataset.nav === 'list' ? pick(null) : step(Number(nav.dataset.nav));
+});
+// Only shown when the panel overlays the schedule (narrow windows).
+document.getElementById('panel-close').addEventListener('click', () => showPanel(false));
+openList.addEventListener('click', () => pick(selected));
+document.addEventListener('keydown', (e) => {
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === 'Escape' && selected) pick(null);
+  else if (selected && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); step(e.key === 'ArrowLeft' ? -1 : 1); }
+});
+pick(null);
+</script>
+</body>
+</html>

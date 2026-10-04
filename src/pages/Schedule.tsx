@@ -19,10 +19,13 @@ import {
 import { supabase } from '../supabase';
 import {
   buildDraft,
+  EARLY_LATE_ONLY,
+  earlyLateUntil,
+  HALF_OF_SHIFT,
   isBlackedOut,
   isSchoolDay,
   isoDate,
-  SLOT_LABEL,
+  SHIFT_LABEL,
   toLocalDate,
   TRAILING_WINDOW_DAYS,
   weekdayOf,
@@ -217,7 +220,11 @@ export function SchedulePage() {
       return;
     }
     const from = genFrom < startsOn ? startsOn : genFrom;
-    const to = genTo > endsOn ? endsOn : genTo;
+    const to = earlyLateUntil(genTo > endsOn ? endsOn : genTo);
+    if (to < from) {
+      setError(EARLY_LATE_ONLY);
+      return;
+    }
     setGenerating(true);
     setError(null);
     setNotice(null);
@@ -406,7 +413,7 @@ export function SchedulePage() {
     const weekday = weekdayOf(shift.date);
     const availableIds = new Set(
       dayAvailability
-        .filter((a) => a.weekday === weekday && a.slot === shift.slot)
+        .filter((a) => a.weekday === weekday && a.slot === HALF_OF_SHIFT[shift.slot])
         .map((a) => a.volunteer_id),
     );
     const available: RosterDetail[] = [];
@@ -616,7 +623,7 @@ export function SchedulePage() {
                       const isPast = shift.date < isoDate(new Date());
                       return (
                         <Stack key={shift.id} gap="sm">
-                          <Strong>{SLOT_LABEL[shift.slot]}</Strong>
+                          <Strong>{SHIFT_LABEL[shift.slot]}</Strong>
                           {shift.assignments.length === 0 ? (
                             <Body>Nobody assigned.</Body>
                           ) : (

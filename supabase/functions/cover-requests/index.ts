@@ -80,11 +80,21 @@ const COORDINATOR = Deno.env.get('DECLINE_NOTIFY_EMAIL') ?? 'mwatabe@fiskeschool
 const SITE = Deno.env.get('PUBLIC_SITE_URL') ?? 'https://pto-demo.onrender.com';
 const TZ = 'America/New_York';
 const INVITE_MARKER = 'pto-demo-invite';
+// Shifts: First/Second/Third since 2026-10-05; early/late rows stay as history.
 const SLOT_TIMES: Record<string, { start: string; end: string }> = {
+  first: { start: '11:05', end: '12:00' },
+  second: { start: '12:05', end: '13:00' },
+  third: { start: '13:20', end: '13:45' },
   early: { start: '11:10', end: '12:20' },
   late: { start: '12:20', end: '13:45' },
 };
-const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
+const SLOT_LABEL: Record<string, string> = {
+  first: 'First shift (11:05–12:00)',
+  second: 'Second shift (12:05–1:00)',
+  third: 'Third shift (1:20–1:45)',
+  early: 'Morning (11:10–12:20)',
+  late: 'Afternoon (12:20–1:45)',
+};
 
 /** RFC 2047-encode a Subject with non-ASCII (the em-dash in dates) so mail clients don't show mojibake. */
 const mimeSubject = (s: string): string =>
@@ -164,14 +174,18 @@ function inviteEventBody(v: { id: string; name: string; email: string }, date: s
 }
 // ---- end helpers ----
 
-type Volunteer = { id: string; name: string; email: string; veteran: boolean; backfill: boolean };
+type Volunteer = { id: string; name: string; email: string; veteran: boolean; backfill: boolean; grades: string | null };
+// Which half of the sign-up availability a shift draws on, and who may take it by grade.
+const HALF_OF: Record<string, string> = { first: 'early', second: 'late', third: 'late', early: 'early', late: 'late' };
+const gradeOk = (v: Volunteer, slot: string) =>
+  slot === 'third' ? /\b3rd\b/i.test(v.grades ?? '') : slot === 'first' ? /\b(4th|5th)\b/i.test(v.grades ?? '') : true;
 type Blackout = { volunteer_id: string; starts_on: string; ends_on: string; weekday: number | null };
 type Shift = { id: string; date: string; slot: string; people: { id: string; veteran: boolean }[] };
 
 async function loadRoster() {
   const client = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const [vRes, aRes, bRes] = await Promise.all([
-    client.from('volunteers').select('id, name, email, veteran, backfill'),
+    client.from('volunteers').select('id, name, email, veteran, backfill, grades'),
     client.from('availability').select('volunteer_id, weekday, slot'),
     client.from('volunteer_blackouts').select('volunteer_id, starts_on, ends_on, weekday'),
   ]);
@@ -204,7 +218,8 @@ function candidates(shift: Shift, volunteers: Volunteer[], cells: Set<string>, b
   return volunteers.filter(
     (v) =>
       v.email !== exclude &&
-      cells.has(`${v.id}|${weekdayOf(shift.date)}|${shift.slot}`) &&
+      cells.has(`${v.id}|${weekdayOf(shift.date)}|${HALF_OF[shift.slot] ?? shift.slot}`) &&
+      gradeOk(v, shift.slot) &&
       !blackouts.some(
         (b) =>
           b.volunteer_id === v.id &&
@@ -283,7 +298,7 @@ Deno.serve(async (req) => {
   try {
     const body = (await req.json().catch(() => ({}))) as { action?: string; date?: string; slot?: string; exclude?: string };
     if (body.action === 'shift') {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date ?? '') || (body.slot !== 'early' && body.slot !== 'late')) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date ?? '') || !SLOT_LABEL[body.slot ?? '']) {
         return json(400, { error: 'date and slot required.' });
       }
       return json(200, await coverOneShift(body.date!, body.slot!, body.exclude?.toLowerCase()));

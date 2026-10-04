@@ -22,6 +22,7 @@ export const SCOPES = {
   drive: 'https://www.googleapis.com/auth/drive',
   calendar: 'https://www.googleapis.com/auth/calendar',
   gmailSend: 'https://www.googleapis.com/auth/gmail.send',
+  gmailRead: 'https://www.googleapis.com/auth/gmail.readonly',
 } as const;
 
 type ServiceAccountKey = { client_email: string; private_key: string };

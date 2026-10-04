@@ -46,6 +46,8 @@ async function chunkedInsert(table: string, rows: Record<string, unknown>[]) {
 }
 
 async function main() {
+  // The early/late generator is retired: from 2026-10-05 lunch has First/Second/Third shifts.
+  throw new Error('Early/late only: plan First/Second/Third with preview:new-shifts, then apply:new-shifts.');
   const { data: year, error: yearError } = await db
     .from('school_year')
     .select('starts_on, ends_on')

@@ -1,7 +1,8 @@
 // Keeps one Google Calendar invite per volunteer per day on the Green Team
-// calendar in step with the schedule: "{name}: Fiske Green Team ({early|
-// late|both shifts})" with the volunteer as guest. Creates, updates and
-// cancels (sendUpdates=all) for every assignment from today onward.
+// calendar in step with the schedule: "{name}: Fiske Green Team (First
+// shift)" with the volunteer as guest. Creates, updates and cancels for every
+// assignment from today onward. An invite is matched by person and day, so a
+// changed shift updates the same event and the guest's RSVP carries over.
 //
 // DRY RUN unless body.confirm === true — creating invites emails every
 // volunteer, so the first run for a real roster is deliberate.
@@ -83,11 +84,21 @@ const COORDINATOR = Deno.env.get('DECLINE_NOTIFY_EMAIL') ?? 'mwatabe@fiskeschool
 const SITE = Deno.env.get('PUBLIC_SITE_URL') ?? 'https://pto-demo.onrender.com';
 const TZ = 'America/New_York';
 const INVITE_MARKER = 'pto-demo-invite';
+// Shifts: First/Second/Third since 2026-10-05; early/late rows stay as history.
 const SLOT_TIMES: Record<string, { start: string; end: string }> = {
+  first: { start: '11:05', end: '12:00' },
+  second: { start: '12:05', end: '13:00' },
+  third: { start: '13:20', end: '13:45' },
   early: { start: '11:10', end: '12:20' },
   late: { start: '12:20', end: '13:45' },
 };
-const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
+const SLOT_LABEL: Record<string, string> = {
+  first: 'First shift (11:05–12:00)',
+  second: 'Second shift (12:05–1:00)',
+  third: 'Third shift (1:20–1:45)',
+  early: 'Morning (11:10–12:20)',
+  late: 'Afternoon (12:20–1:45)',
+};
 
 /** RFC 2047-encode a Subject with non-ASCII (the em-dash in dates) so mail clients don't show mojibake. */
 const mimeSubject = (s: string): string =>
@@ -136,25 +147,45 @@ function shortDate(iso: string): string {
 
 const calendarBase = () => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events`;
 
-type InviteKind = 'early' | 'late' | 'both shifts';
-const slotsForKind = (kind: InviteKind): string[] => (kind === 'both shifts' ? ['early', 'late'] : [kind]);
+// An invite covers one person's day: one shift ("first") or shifts worked back
+// to back ("second+third"). Invites from before 2026-10-05 used 'early' | 'late' | 'both shifts'.
+type InviteKind = string;
+const SLOT_ORDER = ['first', 'early', 'second', 'late', 'third'];
+const slotsForKind = (kind: InviteKind): string[] => (kind === 'both shifts' ? ['early', 'late'] : kind.split('+'));
+const kindForSlots = (slots: Iterable<string>): InviteKind => {
+  const s = [...new Set(slots)].sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b)).join('+');
+  return s === 'early+late' ? 'both shifts' : s;
+};
+const SHIFT_NAME: Record<string, string> = { first: 'First', second: 'Second', third: 'Third' };
+/** "First shift", "Second + Third shifts"; old kinds read as they were. */
+const kindLabel = (kind: InviteKind): string => {
+  const slots = slotsForKind(kind);
+  if (!slots.every((s) => SHIFT_NAME[s])) return kind;
+  return `${slots.map((s) => SHIFT_NAME[s]).join(' + ')} shift${slots.length > 1 ? 's' : ''}`;
+};
 
-/** Body of a per-person invite event: "{name}: Fiske Green Team ({kind})" with the volunteer as guest. */
-// Google Calendar event colors: 5 Banana (yellow), 8 Graphite (gray), 10 Basil (green).
-const KIND_COLOR: Record<InviteKind, string> = { early: '5', late: '8', 'both shifts': '10' };
-const KIND_DETAIL: Record<InviteKind, string> = {
+/** Body of a per-person invite event: "{name}: Fiske Green Team ({First shift})" with the volunteer as guest. */
+// Google Calendar event colors: 5 Banana (yellow), 8 Graphite (gray), 7 Peacock (blue), 10 Basil (green, several shifts).
+const KIND_COLOR: Record<string, string> = { first: '5', second: '8', third: '7', early: '5', late: '8' };
+const SLOT_DETAIL: Record<string, string> = {
+  first: 'First shift 11:05–12:00 (4th grade lunch 11:05–11:30, 5th grade 11:35–12:00)',
+  second: 'Second shift 12:05–1:00 (K & 2nd grade lunch 12:05–12:30, 1st grade 12:35–1:00)',
+  third: 'Third shift 1:20–1:45 (3rd grade lunch)',
   early: 'morning lunch 11:10–12:20 (grades K, 2, 4, 5)',
   late: 'afternoon lunch 12:20–1:45 (grades K, 1, 3)',
-  'both shifts': 'full shift 11:10–1:45 (all grades)',
 };
+const kindDetail = (kind: InviteKind): string =>
+  kind === 'both shifts' ? 'full shift 11:10–1:45 (all grades)' : slotsForKind(kind).map((s) => SLOT_DETAIL[s]).join(', then ');
 
 function inviteEventBody(v: { id: string; name: string; email: string }, date: string, kind: InviteKind) {
   const slots = slotsForKind(kind);
   return {
-    summary: `${v.name}: Fiske Green Team (${kind})`,
-    colorId: KIND_COLOR[kind],
+    summary: `${v.name}: Fiske Green Team (${kindLabel(kind)})`,
+    colorId: KIND_COLOR[kind] ?? '10',
     description: [
-      `Your Green Team lunch shift at Fiske — ${KIND_DETAIL[kind]}.`,
+      `Your Green Team lunch shift at Fiske — ${kindDetail(kind)}.`,
+      '',
+      'Please arrive within the first 5 minutes; you are done once composting for your grades is finished.',
       '',
       'Please ACCEPT this invitation once you know you can make it, and DECLINE as soon as you know you cannot — declining takes you off the shift right away so we can find cover.',
     ].join('\n'),
@@ -226,15 +257,14 @@ Deno.serve(async (req) => {
       e.slots.add(r.shift.slot);
       byPerson.set(k, e);
     }
+    // Keyed "volunteerId|date": one invite per person per day.
     const desired = new Map<string, ReturnType<typeof inviteEventBody>>();
-    for (const { v, date, slots } of byPerson.values()) {
-      const kind: InviteKind = slots.size === 2 ? 'both shifts' : slots.has('early') ? 'early' : 'late';
-      desired.set(`${v.id}|${date}|${kind}`, inviteEventBody(v, date, kind));
-    }
+    for (const { v, date, slots } of byPerson.values()) desired.set(`${v.id}|${date}`, inviteEventBody(v, date, kindForSlots(slots)));
 
-    // Existing invite events (all, so stale ones get cancelled).
+    // Existing invite events (all, so stale ones get cancelled); a second event for the same day is stale too.
     const token = await googleAccessToken(MAIL_FROM, 'https://www.googleapis.com/auth/calendar');
     const existing = new Map<string, GoogleEvent>();
+    const duplicates: GoogleEvent[] = [];
     let pageToken: string | undefined;
     do {
       const params = new URLSearchParams({ privateExtendedProperty: `managedBy=${INVITE_MARKER}`, maxResults: '2500', showDeleted: 'false' });
@@ -244,7 +274,10 @@ Deno.serve(async (req) => {
         const key = ev.extendedProperties?.private?.ptoKey;
         if (!key) continue;
         if (onlyEmail && (ev.extendedProperties?.private?.email ?? '').toLowerCase() !== onlyEmail) continue;
-        existing.set(key, ev);
+        const [volunteerId, date] = key.split('|');
+        const day = `${volunteerId}|${date}`;
+        if (existing.has(day)) duplicates.push(ev);
+        else existing.set(day, ev);
       }
       pageToken = pageData.nextPageToken;
     } while (pageToken);
@@ -259,7 +292,8 @@ Deno.serve(async (req) => {
     const toCreate = [...desired].filter(([k]) => !existing.has(k));
     const toUpdate = [...desired].filter(([k, d]) => existing.has(k) && !same(existing.get(k)!, d));
     // Only cancel future events; past ones are history. Declined ones the webhook already handles.
-    const toDelete = [...existing].filter(([k, g]) => !desired.has(k) && (g.start?.dateTime ?? '') >= today);
+    const toDelete = [...[...existing].filter(([k]) => !desired.has(k)).map(([, g]) => g), ...duplicates]
+      .filter((g) => (g.start?.dateTime ?? '') >= today);
 
     const plan = { create: toCreate.length, update: toUpdate.length, cancel: toDelete.length, personDays: byPerson.size };
     if (!confirm) return json(200, { dryRun: true, ...plan, hint: 'POST {"confirm":true} to send (batches of `limit`, default 40).' });
@@ -274,11 +308,15 @@ Deno.serve(async (req) => {
     for (const [k, d] of toUpdate) {
       if (budget-- <= 0) break;
       // A wording-only change is patched silently; a time/title change re-notifies the guest.
-      const notify = body.notifyChanges === true && !sameTime(existing.get(k)!, d) ? 'all' : 'none';
-      await gfetch(token, `${calendarBase()}/${existing.get(k)!.id}?sendUpdates=${notify}`, { method: 'PATCH', body: JSON.stringify(d) });
+      const g = existing.get(k)!;
+      const notify = body.notifyChanges === true && !sameTime(g, d) ? 'all' : 'none';
+      // Leave the guest list alone when the guest is unchanged, so their RSVP is kept.
+      const { attendees, ...rest } = d;
+      const sameGuest = (g.extendedProperties?.private?.email ?? '').toLowerCase() === attendees[0]!.email.toLowerCase();
+      await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=${notify}`, { method: 'PATCH', body: JSON.stringify(sameGuest ? rest : d) });
       done.updated++;
     }
-    for (const [, g] of toDelete) {
+    for (const g of toDelete) {
       if (budget-- <= 0) break;
       await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=${cancelUpdates}`, { method: 'DELETE' }).catch(() => {});
       done.cancelled++;

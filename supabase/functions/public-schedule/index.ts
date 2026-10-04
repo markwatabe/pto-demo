@@ -17,7 +17,9 @@ const json = (status: number, body: unknown) =>
     headers: { ...CORS, 'Content-Type': 'application/json' },
   });
 
-const SLOTS = ['early', 'late'] as const;
+// Lunch has First/Second/Third shifts from 2026-10-05; earlier days were early/late.
+const THREE_SHIFTS_FROM = '2026-10-05';
+const slotsOn = (date: string) => (date >= THREE_SHIFTS_FROM ? ['first', 'second', 'third'] : ['early', 'late']);
 
 // School-local "today" (dates in the DB are school-local calendar dates).
 function todayInNewYork(): string {
@@ -117,7 +119,7 @@ Deno.serve(async (req) => {
       ((closuresRes.data ?? []) as { date: string }[]).map((c) => c.date),
     );
 
-    // Every school day (Mon-Thu, not a closure) gets both slots, empty or not.
+    // Every school day (Mon-Thu, not a closure) gets all its shifts, empty or not.
     const days: {
       date: string;
       shifts: { slot: string; people: Person[]; declined: string[] }[];
@@ -126,7 +128,7 @@ Deno.serve(async (req) => {
       if (weekdayOf(date) > 4 || closures.has(date)) continue;
       days.push({
         date,
-        shifts: SLOTS.map((slot) => ({
+        shifts: slotsOn(date).map((slot) => ({
           slot,
           people: peopleByKey.get(`${date}|${slot}`) ?? [],
           declined: declinedByKey.get(`${date}|${slot}`) ?? [],

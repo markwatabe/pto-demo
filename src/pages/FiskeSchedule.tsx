@@ -13,7 +13,7 @@ import {
   TextField,
 } from '@apygee/atoms';
 import { supabase } from '../supabase';
-import { SLOT_TIMES, toLocalDate, type Slot } from '../schedule';
+import { SHIFT_TIMES, toLocalDate, type ShiftSlot, type Slot } from '../schedule';
 
 const EMAIL_KEY = 'fiske-schedule-email';
 // Public half of the server's VAPID keypair (safe to embed).
@@ -45,13 +45,16 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 type Day = {
   date: string;
   shifts: {
-    slot: Slot;
+    slot: ShiftSlot;
     people: { name: string; me: boolean; accepted: boolean }[];
     declined: string[];
   }[];
 };
 
-const SLOT_NAME: Record<Slot, string> = { early: 'Early', late: 'Late' };
+const SLOT_NAME: Record<ShiftSlot, string> = { early: 'Early', late: 'Late', first: 'First', second: 'Second', third: 'Third' };
+// Claim, nudge and "can't make it" only work on early/late days (before Oct 5); from
+// then on volunteers use their calendar invite and the weekly reply-all email.
+const inApp = (slot: ShiftSlot): slot is Slot => slot === 'early' || slot === 'late';
 
 function readSavedEmail(): string {
   try {
@@ -116,7 +119,7 @@ function dayLabel(iso: string): string {
   });
 }
 
-const TIMES_LINE = `Early ${clock(SLOT_TIMES.early.start)}–${clock(SLOT_TIMES.early.end)} · Late ${clock(SLOT_TIMES.late.start)}–${clock(SLOT_TIMES.late.end)}`;
+const TIMES_LINE = (['first', 'second', 'third'] as const).map((s) => `${SLOT_NAME[s]} ${clock(SHIFT_TIMES[s].start)}–${clock(SHIFT_TIMES[s].end)}`).join(' · ');
 
 // The coordinator's email — /fiske-admin only works for this identity.
 const COORDINATOR_EMAIL = 'm.watabe@gmail.com';
@@ -393,7 +396,7 @@ export function FiskeSchedulePage({ admin = false }: { admin?: boolean }) {
                         key={shift.slot}
                         style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
                       >
-                        <span style={{ flexShrink: 0, width: '2.6rem' }}>
+                        <span style={{ flexShrink: 0, width: '3.4rem' }}>
                           <Caption>{SLOT_NAME[shift.slot]}</Caption>
                         </span>
                         {shift.people.map((p) => (
@@ -402,10 +405,10 @@ export function FiskeSchedulePage({ admin = false }: { admin?: boolean }) {
                             style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}
                           >
                             <Pill me={p.me} name={p.name} status={p.accepted ? 'accepted' : 'none'} />
-                            {admin && !p.accepted ? (
+                            {admin && !p.accepted && inApp(shift.slot) ? (
                               <Button
                                 variant="ghost"
-                                onClick={() => nudge(day.date, shift.slot, p.name)}
+                                onClick={() => inApp(shift.slot) && nudge(day.date, shift.slot, p.name)}
                                 disabled={nudging !== null}
                               >
                                 {nudging === `${day.date}|${shift.slot}|${p.name}` ? '…' : 'Nudge'}
@@ -416,7 +419,7 @@ export function FiskeSchedulePage({ admin = false }: { admin?: boolean }) {
                         {shift.declined.map((name) => (
                           <Pill key={`declined-${name}`} name={name} status="declined" />
                         ))}
-                        {shift.people.some((p) => p.me) ? (
+                        {!inApp(shift.slot) ? null : shift.people.some((p) => p.me) ? (
                           <span
                             style={{
                               marginLeft: 'auto',
@@ -431,7 +434,7 @@ export function FiskeSchedulePage({ admin = false }: { admin?: boolean }) {
                                 <Caption>Tell the coordinator?</Caption>
                                 <Button
                                   variant="ghost"
-                                  onClick={() => decline(day.date, shift.slot)}
+                                  onClick={() => inApp(shift.slot) && decline(day.date, shift.slot)}
                                   disabled={declining}
                                 >
                                   {declining ? 'Sending…' : 'Yes'}
@@ -461,7 +464,7 @@ export function FiskeSchedulePage({ admin = false }: { admin?: boolean }) {
                           <span style={{ marginLeft: 'auto', flexShrink: 0 }}>
                             <Button
                               variant="ghost"
-                              onClick={() => claim(day.date, shift.slot)}
+                              onClick={() => inApp(shift.slot) && claim(day.date, shift.slot)}
                               disabled={claiming !== null}
                             >
                               {claiming === `${day.date}|${shift.slot}` ? 'Claiming…' : 'Claim'}

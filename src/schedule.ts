@@ -18,6 +18,34 @@ export const SLOT_LABEL: Record<Slot, string> = {
   late: 'Afternoon (12:20–1:45)',
 };
 
+/**
+ * From this day lunch has three shifts (First/Second/Third, see
+ * src/newShifts.ts); earlier days were early/late. The draft generator in this
+ * file only plans early/late, so its callers stop at earlyLateUntil().
+ */
+export const THREE_SHIFTS_FROM = '2026-10-05';
+const LAST_EARLY_LATE_DAY = '2026-10-04';
+/** The last day the early/late generator may plan when asked to plan through `to`. */
+export const earlyLateUntil = (to: string): string => (to < THREE_SHIFTS_FROM ? to : LAST_EARLY_LATE_DAY);
+export const EARLY_LATE_ONLY = 'From Oct 5 lunch has First/Second/Third shifts, which this generator does not plan.';
+
+/** Any green_team_shifts.slot: early/late before THREE_SHIFTS_FROM, first/second/third from it. */
+export type ShiftSlot = Slot | 'first' | 'second' | 'third';
+export const SHIFT_TIMES: Record<ShiftSlot, { start: string; end: string }> = {
+  ...SLOT_TIMES,
+  first: { start: '11:05', end: '12:00' },
+  second: { start: '12:05', end: '13:00' },
+  third: { start: '13:20', end: '13:45' },
+};
+/** Which half of the sign-up availability (early/late) a shift draws on. */
+export const HALF_OF_SHIFT: Record<ShiftSlot, Slot> = { early: 'early', late: 'late', first: 'early', second: 'late', third: 'late' };
+export const SHIFT_LABEL: Record<ShiftSlot, string> = {
+  ...SLOT_LABEL,
+  first: 'First (11:05–12:00)',
+  second: 'Second (12:05–1:00)',
+  third: 'Third (1:20–1:45)',
+};
+
 export type Frequency = 'weekly' | 'biweekly' | 'monthly' | 'custom';
 
 export type RosterVolunteer = {

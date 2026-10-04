@@ -12,3 +12,12 @@ dist
 # Real volunteer PII — never commit
 volunteers.csv
 deno.lock
+
+# Accepted-invite snapshots + new-shift previews — real volunteer PII, never commit
+/accepted-invites.csv
+/new-shifts-preview*.html
+/new-shifts-by-person*.txt
+/shift-prefs.json
+/pinned-shifts.json
+/extra-shifts.json
+/shift-email-threads.json

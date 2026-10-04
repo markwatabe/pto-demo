@@ -80,6 +80,8 @@ function eventFor(name: string, date: string, kind: Kind, volunteerId: string): 
 type GoogleEvent = { id: string; extendedProperties?: { private?: Record<string, string> } };
 
 async function main() {
+  // The early/late generator is retired: from 2026-10-05 lunch has First/Second/Third shifts.
+  throw new Error('Early/late only: plan First/Second/Third with preview:new-shifts, then apply:new-shifts.');
   const cleanup = process.argv.includes('--cleanup');
   const token = await googleAccessToken(GREEN_TEAM_USER, SCOPES.calendar);
   const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GREEN_TEAM_CALENDAR_ID)}/events`;

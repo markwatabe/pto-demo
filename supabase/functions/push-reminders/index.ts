@@ -12,9 +12,14 @@ const json = (status: number, body: unknown) =>
 
 // Mirrors SLOT_TIMES / labels in src/schedule.ts.
 const SLOT_TEXT: Record<string, string> = {
+  first: 'First shift 11:05–12:00',
+  second: 'Second shift 12:05–1:00',
+  third: 'Third shift 1:20–1:45',
   early: 'Morning shift 11:10–12:20',
   late: 'Afternoon shift 12:20–1:45',
 };
+// Order within a day: first/early, second/late, third.
+const SLOT_ORDER = ['first', 'early', 'second', 'late', 'third'];
 
 function b64uDecode(s: string): Uint8Array {
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
@@ -207,7 +212,7 @@ Deno.serve(async (req) => {
     for (const row of subs ?? []) {
       const slots = slotsByEmail.get(row.email)!;
       const text = slots
-        .sort()
+        .sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b))
         .map((s) => SLOT_TEXT[s] ?? s)
         .join(' and ');
       const result = await sendPush(

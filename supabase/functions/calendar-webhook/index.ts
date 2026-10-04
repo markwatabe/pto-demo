@@ -90,11 +90,21 @@ const COORDINATOR = Deno.env.get('DECLINE_NOTIFY_EMAIL') ?? 'mwatabe@fiskeschool
 const SITE = Deno.env.get('PUBLIC_SITE_URL') ?? 'https://pto-demo.onrender.com';
 const TZ = 'America/New_York';
 const INVITE_MARKER = 'pto-demo-invite';
+// Shifts: First/Second/Third since 2026-10-05; early/late rows stay as history.
 const SLOT_TIMES: Record<string, { start: string; end: string }> = {
+  first: { start: '11:05', end: '12:00' },
+  second: { start: '12:05', end: '13:00' },
+  third: { start: '13:20', end: '13:45' },
   early: { start: '11:10', end: '12:20' },
   late: { start: '12:20', end: '13:45' },
 };
-const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
+const SLOT_LABEL: Record<string, string> = {
+  first: 'First shift (11:05–12:00)',
+  second: 'Second shift (12:05–1:00)',
+  third: 'Third shift (1:20–1:45)',
+  early: 'Morning (11:10–12:20)',
+  late: 'Afternoon (12:20–1:45)',
+};
 
 /** RFC 2047-encode a Subject with non-ASCII (the em-dash in dates) so mail clients don't show mojibake. */
 const mimeSubject = (s: string): string =>
@@ -143,25 +153,45 @@ function shortDate(iso: string): string {
 
 const calendarBase = () => `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events`;
 
-type InviteKind = 'early' | 'late' | 'both shifts';
-const slotsForKind = (kind: InviteKind): string[] => (kind === 'both shifts' ? ['early', 'late'] : [kind]);
+// An invite covers one person's day: one shift ("first") or shifts worked back
+// to back ("second+third"). Invites from before 2026-10-05 used 'early' | 'late' | 'both shifts'.
+type InviteKind = string;
+const SLOT_ORDER = ['first', 'early', 'second', 'late', 'third'];
+const slotsForKind = (kind: InviteKind): string[] => (kind === 'both shifts' ? ['early', 'late'] : kind.split('+'));
+const kindForSlots = (slots: Iterable<string>): InviteKind => {
+  const s = [...new Set(slots)].sort((a, b) => SLOT_ORDER.indexOf(a) - SLOT_ORDER.indexOf(b)).join('+');
+  return s === 'early+late' ? 'both shifts' : s;
+};
+const SHIFT_NAME: Record<string, string> = { first: 'First', second: 'Second', third: 'Third' };
+/** "First shift", "Second + Third shifts"; old kinds read as they were. */
+const kindLabel = (kind: InviteKind): string => {
+  const slots = slotsForKind(kind);
+  if (!slots.every((s) => SHIFT_NAME[s])) return kind;
+  return `${slots.map((s) => SHIFT_NAME[s]).join(' + ')} shift${slots.length > 1 ? 's' : ''}`;
+};
 
-/** Body of a per-person invite event: "{name}: Fiske Green Team ({kind})" with the volunteer as guest. */
-// Google Calendar event colors: 5 Banana (yellow), 8 Graphite (gray), 10 Basil (green).
-const KIND_COLOR: Record<InviteKind, string> = { early: '5', late: '8', 'both shifts': '10' };
-const KIND_DETAIL: Record<InviteKind, string> = {
+/** Body of a per-person invite event: "{name}: Fiske Green Team ({First shift})" with the volunteer as guest. */
+// Google Calendar event colors: 5 Banana (yellow), 8 Graphite (gray), 7 Peacock (blue), 10 Basil (green, several shifts).
+const KIND_COLOR: Record<string, string> = { first: '5', second: '8', third: '7', early: '5', late: '8' };
+const SLOT_DETAIL: Record<string, string> = {
+  first: 'First shift 11:05–12:00 (4th grade lunch 11:05–11:30, 5th grade 11:35–12:00)',
+  second: 'Second shift 12:05–1:00 (K & 2nd grade lunch 12:05–12:30, 1st grade 12:35–1:00)',
+  third: 'Third shift 1:20–1:45 (3rd grade lunch)',
   early: 'morning lunch 11:10–12:20 (grades K, 2, 4, 5)',
   late: 'afternoon lunch 12:20–1:45 (grades K, 1, 3)',
-  'both shifts': 'full shift 11:10–1:45 (all grades)',
 };
+const kindDetail = (kind: InviteKind): string =>
+  kind === 'both shifts' ? 'full shift 11:10–1:45 (all grades)' : slotsForKind(kind).map((s) => SLOT_DETAIL[s]).join(', then ');
 
 function inviteEventBody(v: { id: string; name: string; email: string }, date: string, kind: InviteKind) {
   const slots = slotsForKind(kind);
   return {
-    summary: `${v.name}: Fiske Green Team (${kind})`,
-    colorId: KIND_COLOR[kind],
+    summary: `${v.name}: Fiske Green Team (${kindLabel(kind)})`,
+    colorId: KIND_COLOR[kind] ?? '10',
     description: [
-      `Your Green Team lunch shift at Fiske — ${KIND_DETAIL[kind]}.`,
+      `Your Green Team lunch shift at Fiske — ${kindDetail(kind)}.`,
+      '',
+      'Please arrive within the first 5 minutes; you are done once composting for your grades is finished.',
       '',
       'Please ACCEPT this invitation once you know you can make it, and DECLINE as soon as you know you cannot — declining takes you off the shift right away so we can find cover.',
     ].join('\n'),
@@ -358,7 +388,7 @@ async function handleDecline(
   }
 
   if (volunteer) {
-    await blackoutForDecline(client, volunteer.id, date, `Declined the ${kind} invite (calendar)`);
+    await blackoutForDecline(client, volunteer.id, date, `Declined the ${kindLabel(kind)} invite (calendar)`);
   }
 
   await client.from('shift_declines').insert(
@@ -382,7 +412,7 @@ async function handleDecline(
   await sendMail({
     to: COORDINATOR,
     replyTo: email,
-    subject: `Declined: ${name} — ${shortDate(date)} (${kind})`,
+    subject: `Declined: ${name} — ${shortDate(date)} (${kindLabel(kind)})`,
     text: [
       `${name} (${email}) declined their calendar invite and has been taken off the shift.`,
       '',

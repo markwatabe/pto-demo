@@ -4,13 +4,13 @@ import { Calendar } from '@apygee/calendar';
 import type { CalendarEvent } from '@apygee/types';
 import { supabase } from '../supabase';
 import { useAuth } from '../auth';
-import { SLOT_TIMES, type Slot } from '../schedule';
+import { SHIFT_TIMES, type ShiftSlot } from '../schedule';
 
 type Volunteer = { id: string; name: string; email: string };
 type Shift = {
   id: string;
   date: string; // ISO date, e.g. "2026-08-24"
-  slot: Slot;
+  slot: ShiftSlot;
   volunteers: Volunteer[];
 };
 
@@ -32,7 +32,7 @@ function shiftToEvent(shift: Shift): CalendarEvent {
     .map((v) => v.name)
     .sort((a, b) => a.localeCompare(b))
     .join(', ');
-  const { start, end } = SLOT_TIMES[shift.slot];
+  const { start, end } = SHIFT_TIMES[shift.slot];
   return {
     id: shift.id,
     title: `Green Team: ${names || 'unfilled'}`,

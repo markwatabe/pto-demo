@@ -19,10 +19,13 @@ const TZ = 'America/New_York';
 const MANAGED = 'pto-demo';
 // Mirrors SLOT_TIMES in src/schedule.ts — keep the two in sync.
 const SLOT_TIMES: Record<string, { start: string; end: string }> = {
+  first: { start: '11:05', end: '12:00' },
+  second: { start: '12:05', end: '13:00' },
+  third: { start: '13:20', end: '13:45' },
   early: { start: '11:10', end: '12:20' },
   late: { start: '12:20', end: '13:45' },
 };
-const SLOT_LABEL: Record<string, string> = { early: 'Early', late: 'Late' };
+const SLOT_LABEL: Record<string, string> = { first: 'First', second: 'Second', third: 'Third', early: 'Early', late: 'Late' };
 
 function pemToArrayBuffer(pem: string): ArrayBuffer {
   const body = pem

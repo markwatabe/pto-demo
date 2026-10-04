@@ -19,6 +19,8 @@ import {
 import { supabase } from '../supabase';
 import {
   buildDraft,
+  EARLY_LATE_ONLY,
+  earlyLateUntil,
   isoDate,
   SLOT_LABEL,
   SLOTS,
@@ -207,7 +209,11 @@ export function PlanPage() {
     if (!year || !month) return;
     const range = monthRange(month);
     const from = range.from < year.starts_on ? year.starts_on : range.from;
-    const to = range.to > year.ends_on ? year.ends_on : range.to;
+    const to = earlyLateUntil(range.to > year.ends_on ? year.ends_on : range.to);
+    if (to < from) {
+      setError(EARLY_LATE_ONLY);
+      return;
+    }
     setBusy('preview');
     setError(null);
     setNotice(null);
@@ -345,6 +351,8 @@ export function PlanPage() {
       return day[slot];
     };
     for (const s of monthShifts) {
+      // First/Second/Third days (from Oct 5) aren't planned here.
+      if (!(SLOTS as readonly string[]).includes(s.slot)) continue;
       const c = cell(s.date, s.slot);
       for (const a of s.assignments) c.saved.push(a.volunteer);
     }

@@ -10,6 +10,9 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+// Lunch has First/Second/Third shifts from 2026-10-05; volunteers handle those
+// through their calendar invite and the weekly reply-all email, not the app.
+const THREE_SHIFTS_FROM = '2026-10-05';
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
     status,
@@ -41,6 +44,9 @@ Deno.serve(async (req) => {
     const slot = body.slot ?? '';
     if (!email.includes('@')) return json(400, { error: 'A valid email is required.' });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { error: 'Invalid date.' });
+    if (date >= THREE_SHIFTS_FROM) {
+      return json(400, { error: "To pick up a shift, reply all to your shift's weekly Green Team email." });
+    }
     if (slot !== 'early' && slot !== 'late') return json(400, { error: 'Invalid slot.' });
     if (date < todayInNewYork()) return json(400, { error: 'That shift is in the past.' });
 

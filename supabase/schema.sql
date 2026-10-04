@@ -73,13 +73,14 @@ create table child_past_teachers (
   primary key (child_id, teacher_id)
 );
 
--- Green Team lunch shifts: early (11:05-12:15) and late (12:20-13:30) per
--- school day, covered by roster volunteers. Clock times live in
--- src/schedule.ts (SLOT_TIMES). Admins create/remove shifts client-side.
+-- Green Team lunch shifts per school day, covered by roster volunteers:
+-- first (11:05-12:00), second (12:05-13:00) and third (13:20-13:45) from
+-- 2026-10-05; earlier days were early/late and stay as history. Clock times
+-- live in src/schedule.ts (SLOT_TIMES) and each edge function.
 create table green_team_shifts (
   id uuid primary key default gen_random_uuid(),
   date date not null,
-  slot text not null check (slot in ('early', 'late')),
+  slot text not null check (slot in ('early', 'late', 'first', 'second', 'third')),
   unique (date, slot)
 );
 create index green_team_shifts_date_idx on green_team_shifts (date);
@@ -328,7 +329,7 @@ create table shift_declines (
   volunteer_email text not null,
   volunteer_name text not null,
   date date not null,
-  slot text not null check (slot in ('early', 'late')),
+  slot text not null check (slot in ('early', 'late', 'first', 'second', 'third')),
   source text not null check (source in ('calendar', 'app')),
   handling text not null check (handling in ('urgent-cover-request', 'deferred-to-weekly')),
   cover_emails_sent integer not null default 0,
@@ -346,7 +347,7 @@ create table nudge_log (
   id uuid primary key default gen_random_uuid(),
   volunteer_id uuid not null references volunteers (id) on delete cascade,
   date date not null,
-  slot text not null check (slot in ('early', 'late')),
+  slot text not null check (slot in ('early', 'late', 'first', 'second', 'third')),
   sent_at timestamptz not null default now()
 );
 create index nudge_log_lookup_idx on nudge_log (volunteer_id, date, slot);

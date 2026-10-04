@@ -66,7 +66,13 @@ async function googleAccessToken(sub: string, scope: string): Promise<string> {
 const MAIL_FROM = Deno.env.get('MAIL_FROM_EMAIL') ?? 'greenteam@fiskeschoolpto.org';
 const COORDINATOR = Deno.env.get('DECLINE_NOTIFY_EMAIL') ?? 'mwatabe@fiskeschoolpto.org';
 const TZ = 'America/New_York';
-const SLOT_LABEL: Record<string, string> = { early: 'Morning (11:10–12:20)', late: 'Afternoon (12:20–1:45)' };
+const SLOT_LABEL: Record<string, string> = {
+  first: 'First shift (11:05–12:00)',
+  second: 'Second shift (12:05–1:00)',
+  third: 'Third shift (1:20–1:45)',
+  early: 'Morning (11:10–12:20)',
+  late: 'Afternoon (12:20–1:45)',
+};
 
 /** RFC 2047-encode a Subject with non-ASCII (the em-dash in dates) so mail clients don't show mojibake. */
 const mimeSubject = (s: string): string =>
@@ -152,7 +158,7 @@ Deno.serve(async (req) => {
     const slot = body.slot ?? '';
     const name = (body.name ?? '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { error: 'Invalid date.' });
-    if (slot !== 'early' && slot !== 'late') return json(400, { error: 'Invalid slot.' });
+    if (!SLOT_LABEL[slot]) return json(400, { error: 'Invalid slot.' });
     if (!name) return json(400, { error: 'A volunteer name is required.' });
     if (date < todayInNewYork()) return json(400, { error: 'That shift is in the past.' });
 
