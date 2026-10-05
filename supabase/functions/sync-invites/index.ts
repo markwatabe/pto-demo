@@ -287,8 +287,10 @@ Deno.serve(async (req) => {
       g.summary === d.summary &&
       Boolean(g.start?.dateTime?.startsWith(d.start.dateTime)) &&
       Boolean(g.end?.dateTime?.startsWith(d.end.dateTime));
+    const sameGuest = (g: GoogleEvent, d: ReturnType<typeof inviteEventBody>) =>
+      (g.extendedProperties?.private?.email ?? '').toLowerCase() === d.attendees[0]!.email.toLowerCase();
     const same = (g: GoogleEvent, d: ReturnType<typeof inviteEventBody>) =>
-      sameTime(g, d) && (g.description ?? '') === d.description;
+      sameTime(g, d) && sameGuest(g, d) && (g.description ?? '') === d.description;
 
     const toCreate = [...desired].filter(([k]) => !existing.has(k));
     const toUpdate = [...desired].filter(([k, d]) => existing.has(k) && !same(existing.get(k)!, d));
@@ -310,11 +312,11 @@ Deno.serve(async (req) => {
       if (budget-- <= 0) break;
       // A wording-only change is patched silently; a time/title change re-notifies the guest.
       const g = existing.get(k)!;
-      const notify = body.notifyChanges === true && !sameTime(g, d) ? 'all' : 'none';
+      // A new time or a new guest address (the volunteer's email changed) is worth an email when notifying.
+      const notify = body.notifyChanges === true && (!sameTime(g, d) || !sameGuest(g, d)) ? 'all' : 'none';
       // Leave the guest list alone when the guest is unchanged (a wording-only change keeps their RSVP).
-      const { attendees, ...rest } = d;
-      const sameGuest = (g.extendedProperties?.private?.email ?? '').toLowerCase() === attendees[0]!.email.toLowerCase();
-      await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=${notify}`, { method: 'PATCH', body: JSON.stringify(sameGuest ? rest : d) });
+      const { attendees: _, ...rest } = d;
+      await gfetch(token, `${calendarBase()}/${g.id}?sendUpdates=${notify}`, { method: 'PATCH', body: JSON.stringify(sameGuest(g, d) ? rest : d) });
       done.updated++;
     }
     for (const g of toDelete) {
